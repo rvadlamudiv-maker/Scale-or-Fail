@@ -23,44 +23,63 @@ def _style_for_load(load: float) -> str:
     return "green"
 
 
-def _fmt(rps: float) -> str:
-    return f"{rps:,.0f}"
+def _style_for_latency(ms: float) -> str:
+    if ms > 1000:
+        return "bold red"
+    if ms > 300:
+        return "yellow"
+    return "green"
+
+
+def _fmt(n: float) -> str:
+    return f"{n:,.0f}"
 
 
 def print_timeline(result: SimulationResult, every_s: float) -> None:
     node_ids = list(result.snapshots[0].nodes)
-    table = Table(title="Served RPS over time (green ok / yellow >80% / red overloaded)")
+    table = Table(title="Served RPS over time  (-N = failed: dropped + timed out)")
     table.add_column("t (s)", justify="right")
     for node_id in node_ids:
         table.add_column(node_id, justify="right")
+    table.add_column("end-to-end", justify="right")
     step = max(1, round(every_s * result.scenario.tick_hz))
     for snap in result.snapshots[::step]:
         cells = []
         for node_id in node_ids:
             tick = snap.nodes[node_id]
             text = _fmt(tick.served_rps)
-            if tick.dropped_rps > 0:
-                text += f" (-{_fmt(tick.dropped_rps)})"
+            failed = tick.dropped_rps + tick.timed_out_rps
+            if failed > 0:
+                text += f" (-{_fmt(failed)})"
             cells.append(f"[{_style_for_load(tick.load)}]{text}[/]")
+        e2e = snap.end_to_end_ms
+        cells.append(f"[{_style_for_latency(e2e)}]{_fmt(e2e)} ms[/]")
         table.add_row(f"{snap.t:.1f}", *cells)
     console.print(table)
 
 
 def print_summary(result: SimulationResult) -> None:
     table = Table(title="Summary")
-    for col in ("node", "avg in", "avg served", "peak served", "peak load", "dropped", "overloaded"):
+    columns = ("node", "avg in", "peak load", "peak queue", "peak latency", "dropped", "timed out", "overloaded")
+    for col in columns:
         table.add_column(col, justify="left" if col == "node" else "right")
     for node_id, s in result.summary().items():
         table.add_row(
             node_id,
             _fmt(s.avg_inbound_rps),
-            _fmt(s.avg_served_rps),
-            _fmt(s.peak_served_rps),
             f"[{_style_for_load(s.peak_load)}]{s.peak_load:.0%}[/]",
+            _fmt(s.peak_queue),
+            f"[{_style_for_latency(s.peak_latency_ms)}]{_fmt(s.peak_latency_ms)} ms[/]",
             f"{s.drop_rate:.1%}",
+            f"{s.timeout_rate:.1%}",
             f"{s.overloaded_s:.1f}s",
         )
     console.print(table)
+    p50, p99 = result.latency_percentile(50), result.latency_percentile(99)
+    console.print(
+        f"End-to-end latency:  p50 [{_style_for_latency(p50)}]{_fmt(p50)} ms[/]"
+        f"   p99 [{_style_for_latency(p99)}]{_fmt(p99)} ms[/]"
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

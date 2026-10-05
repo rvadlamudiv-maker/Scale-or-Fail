@@ -41,6 +41,7 @@ class NodeTick:
 class TickSnapshot:
     t: float
     nodes: dict[str, NodeTick]
+    end_to_end_ms: float  # latency a user request sees, summed along its path
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +61,20 @@ class NodeSummary:
 class SimulationResult:
     scenario: Scenario
     snapshots: list[TickSnapshot]
+    client_id: str
+
+    def latency_percentile(self, p: float) -> float:
+        """End-to-end latency percentile across the run, weighted by traffic per tick."""
+        weighted = sorted(
+            (s.end_to_end_ms, s.nodes[self.client_id].inbound_rps) for s in self.snapshots
+        )
+        total = sum(w for _, w in weighted)
+        running = 0.0
+        for latency, w in weighted:
+            running += w
+            if running >= p / 100 * total:
+                return latency
+        return weighted[-1][0]
 
     def summary(self) -> dict[str, NodeSummary]:
         dt = 1.0 / self.scenario.tick_hz
@@ -149,7 +164,22 @@ class Simulator:
             self._route(node_id, component.type, served_rps, inbound)
 
         self._tick += 1
-        return TickSnapshot(t=t, nodes=nodes)
+        return TickSnapshot(t=t, nodes=nodes, end_to_end_ms=self._end_to_end_ms(nodes))
+
+    def _end_to_end_ms(self, nodes: dict[str, NodeTick]) -> float:
+        """Walk the graph bottom-up: a node's total = its own latency + what it waits on downstream."""
+        total: dict[str, float] = {}
+        for node_id in reversed(self._order):
+            edges = self.graph.downstream(node_id)
+            if self.graph.component(node_id).type is ComponentType.LOAD_BALANCER:
+                # A request goes to ONE target, so take the weighted average.
+                weight_sum = sum(e.weight for e in edges)
+                downstream = sum(e.weight / weight_sum * total[e.target] for e in edges)
+            else:
+                # Each downstream call is made in turn, so their latencies add up.
+                downstream = sum(e.calls_per_request * total[e.target] for e in edges)
+            total[node_id] = nodes[node_id].latency_ms + downstream
+        return total[self.graph.client_id]
 
     @staticmethod
     def _latency_ms(component, served_rps: float, queue: float) -> float:
@@ -178,4 +208,8 @@ class Simulator:
             yield self.step()
 
     def run(self) -> SimulationResult:
-        return SimulationResult(scenario=self.scenario, snapshots=list(self.iter_ticks()))
+        return SimulationResult(
+            scenario=self.scenario,
+            snapshots=list(self.iter_ticks()),
+            client_id=self.graph.client_id,
+        )
