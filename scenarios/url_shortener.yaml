@@ -1,0 +1,12 @@
+name: URL Shortener
+description: Steady read traffic, then a link goes viral at t=20s.
+duration_s: 60
+tick_hz: 10
+seed: 42
+traffic:
+  base_rps: 3000
+  noise: 0.05
+  spikes:
+    - at_s: 20
+      duration_s: 15
+      multiplier: 2.5
