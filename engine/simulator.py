@@ -5,7 +5,9 @@ order, not as individual requests, so the engine stays fast at millions of
 simulated RPS.
 
 Day 2: each node has a queue. Requests it can't serve this tick wait in line;
-only when the queue is full are requests dropped.
+only when the queue is full are requests dropped. Each node also reports a
+latency: its service time stretched by utilization (the M/M/1 curve) plus the
+time needed to work through the backlog ahead of a new request (Little's Law).
 """
 
 from __future__ import annotations
@@ -19,6 +21,9 @@ from dataclasses import dataclass
 from engine.models import ComponentType, SystemGraph
 from engine.scenario import Scenario
 
+# Utilization is capped below 1.0 so the M/M/1 curve stays finite at saturation.
+MAX_UTILIZATION = 0.95
+
 
 @dataclass(frozen=True, slots=True)
 class NodeTick:
@@ -26,6 +31,7 @@ class NodeTick:
     served_rps: float
     dropped_rps: float
     queue_depth: float  # requests waiting at the end of this tick
+    latency_ms: float  # time a request spends at this node (processing + waiting)
     load: float  # demand / capacity; > 1.0 means overloaded
 
 
@@ -42,6 +48,7 @@ class NodeSummary:
     peak_served_rps: float
     peak_load: float
     peak_queue: float
+    peak_latency_ms: float
     drop_rate: float
     overloaded_s: float
 
@@ -65,6 +72,7 @@ class SimulationResult:
                 peak_served_rps=max(t.served_rps for t in ticks),
                 peak_load=max(t.load for t in ticks),
                 peak_queue=max(t.queue_depth for t in ticks),
+                peak_latency_ms=max(t.latency_ms for t in ticks),
                 drop_rate=dropped / inbound if inbound else 0.0,
                 overloaded_s=sum(dt for t in ticks if t.load > 1.0),
             )
@@ -104,6 +112,7 @@ class Simulator:
             if math.isinf(capacity_rps):
                 # The client has no limit: everything it sends goes out this tick.
                 served, dropped, queue, load = demand_rps * self.dt, 0.0, 0.0, 0.0
+                latency_ms = 0.0
             else:
                 # Work in request counts for this tick, not rates.
                 available = self._queues[node_id] + demand_rps * self.dt
@@ -112,6 +121,7 @@ class Simulator:
                 dropped = max(0.0, queue - component.queue_limit)
                 queue -= dropped
                 load = demand_rps / capacity_rps
+                latency_ms = self._latency_ms(component, served / self.dt, queue)
 
             self._queues[node_id] = queue
             served_rps = served / self.dt
@@ -120,12 +130,23 @@ class Simulator:
                 served_rps=served_rps,
                 dropped_rps=dropped / self.dt,
                 queue_depth=queue,
+                latency_ms=latency_ms,
                 load=load,
             )
             self._route(node_id, component.type, served_rps, inbound)
 
         self._tick += 1
         return TickSnapshot(t=t, nodes=nodes)
+
+    @staticmethod
+    def _latency_ms(component, served_rps: float, queue: float) -> float:
+        capacity_rps = component.total_capacity_rps
+        # M/M/1: as a server gets busier, each request waits longer: S / (1 - rho).
+        rho = min(served_rps / capacity_rps, MAX_UTILIZATION)
+        processing_s = (component.service_time_ms / 1000) / (1 - rho)
+        # Little's Law (L = lambda * W): a backlog of L drained at capacity waits W = L / capacity.
+        backlog_wait_s = queue / capacity_rps
+        return (processing_s + backlog_wait_s) * 1000
 
     def _route(self, node_id, kind, served_rps, inbound) -> None:
         edges = self.graph.downstream(node_id)

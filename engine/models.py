@@ -23,6 +23,13 @@ DEFAULT_CAPACITY_RPS: dict[ComponentType, float] = {
     ComponentType.DATABASE: 5_000,
 }
 
+# Time one request spends being processed when the component is idle (milliseconds).
+DEFAULT_SERVICE_MS: dict[ComponentType, float] = {
+    ComponentType.LOAD_BALANCER: 1,
+    ComponentType.APP_SERVER: 20,
+    ComponentType.DATABASE: 5,
+}
+
 # By default a component can queue up to 1 second of work before it drops requests.
 DEFAULT_QUEUE_SECONDS = 1.0
 
@@ -36,6 +43,9 @@ class Component(BaseModel):
     )
     max_queue: float | None = Field(
         default=None, ge=0, description="Max requests waiting. Default: 1 second of capacity."
+    )
+    service_ms: float | None = Field(
+        default=None, gt=0, description="Processing time per request when idle (ms)."
     )
 
     @property
@@ -52,6 +62,12 @@ class Component(BaseModel):
         if self.max_queue is not None:
             return self.max_queue
         return self.total_capacity_rps * DEFAULT_QUEUE_SECONDS
+
+    @property
+    def service_time_ms(self) -> float:
+        if self.type is ComponentType.CLIENT:
+            return 0.0
+        return self.service_ms or DEFAULT_SERVICE_MS[self.type]
 
 
 class Edge(BaseModel):
