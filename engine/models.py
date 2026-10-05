@@ -47,6 +47,9 @@ class Component(BaseModel):
     service_ms: float | None = Field(
         default=None, gt=0, description="Processing time per request when idle (ms)."
     )
+    timeout_ms: float | None = Field(
+        default=None, gt=0, description="Requests waiting longer than this give up. None = wait forever."
+    )
 
     @property
     def total_capacity_rps(self) -> float:

@@ -5,7 +5,8 @@ order, not as individual requests, so the engine stays fast at millions of
 simulated RPS.
 
 Day 2: each node has a queue. Requests it can't serve this tick wait in line;
-only when the queue is full are requests dropped. Each node also reports a
+only when the queue is full are requests dropped. Requests that would wait
+longer than a component's timeout give up (time out). Each node also reports a
 latency: its service time stretched by utilization (the M/M/1 curve) plus the
 time needed to work through the backlog ahead of a new request (Little's Law).
 """
@@ -29,7 +30,8 @@ MAX_UTILIZATION = 0.95
 class NodeTick:
     inbound_rps: float
     served_rps: float
-    dropped_rps: float
+    dropped_rps: float  # rejected because the queue was full
+    timed_out_rps: float  # gave up after waiting longer than the timeout
     queue_depth: float  # requests waiting at the end of this tick
     latency_ms: float  # time a request spends at this node (processing + waiting)
     load: float  # demand / capacity; > 1.0 means overloaded
@@ -50,6 +52,7 @@ class NodeSummary:
     peak_queue: float
     peak_latency_ms: float
     drop_rate: float
+    timeout_rate: float
     overloaded_s: float
 
 
@@ -66,6 +69,7 @@ class SimulationResult:
             ticks = [s.nodes[node_id] for s in self.snapshots]
             inbound = sum(t.inbound_rps for t in ticks)
             dropped = sum(t.dropped_rps for t in ticks)
+            timed_out = sum(t.timed_out_rps for t in ticks)
             out[node_id] = NodeSummary(
                 avg_inbound_rps=inbound / n,
                 avg_served_rps=sum(t.served_rps for t in ticks) / n,
@@ -74,6 +78,7 @@ class SimulationResult:
                 peak_queue=max(t.queue_depth for t in ticks),
                 peak_latency_ms=max(t.latency_ms for t in ticks),
                 drop_rate=dropped / inbound if inbound else 0.0,
+                timeout_rate=timed_out / inbound if inbound else 0.0,
                 overloaded_s=sum(dt for t in ticks if t.load > 1.0),
             )
         return out
@@ -111,13 +116,20 @@ class Simulator:
 
             if math.isinf(capacity_rps):
                 # The client has no limit: everything it sends goes out this tick.
-                served, dropped, queue, load = demand_rps * self.dt, 0.0, 0.0, 0.0
+                served, dropped, timed_out, queue, load = demand_rps * self.dt, 0.0, 0.0, 0.0, 0.0
                 latency_ms = 0.0
             else:
                 # Work in request counts for this tick, not rates.
                 available = self._queues[node_id] + demand_rps * self.dt
                 served = min(available, capacity_rps * self.dt)
                 queue = available - served
+                # Requests that would wait longer than the timeout give up.
+                timed_out = 0.0
+                if component.timeout_ms is not None:
+                    max_waiting = capacity_rps * component.timeout_ms / 1000
+                    timed_out = max(0.0, queue - max_waiting)
+                    queue -= timed_out
+                # Whatever still doesn't fit in the queue is rejected.
                 dropped = max(0.0, queue - component.queue_limit)
                 queue -= dropped
                 load = demand_rps / capacity_rps
@@ -129,6 +141,7 @@ class Simulator:
                 inbound_rps=demand_rps,
                 served_rps=served_rps,
                 dropped_rps=dropped / self.dt,
+                timed_out_rps=timed_out / self.dt,
                 queue_depth=queue,
                 latency_ms=latency_ms,
                 load=load,
