@@ -2,11 +2,15 @@
 
 Traffic moves as rates (requests/second) through the graph in topological
 order, not as individual requests, so the engine stays fast at millions of
-simulated RPS. Day 1: each node serves up to capacity and drops the excess.
+simulated RPS.
+
+Day 2: each node has a queue. Requests it can't serve this tick wait in line;
+only when the queue is full are requests dropped.
 """
 
 from __future__ import annotations
 
+import math
 import random
 from collections import defaultdict
 from collections.abc import Iterator
@@ -21,6 +25,7 @@ class NodeTick:
     inbound_rps: float
     served_rps: float
     dropped_rps: float
+    queue_depth: float  # requests waiting at the end of this tick
     load: float  # demand / capacity; > 1.0 means overloaded
 
 
@@ -36,6 +41,7 @@ class NodeSummary:
     avg_served_rps: float
     peak_served_rps: float
     peak_load: float
+    peak_queue: float
     drop_rate: float
     overloaded_s: float
 
@@ -58,6 +64,7 @@ class SimulationResult:
                 avg_served_rps=sum(t.served_rps for t in ticks) / n,
                 peak_served_rps=max(t.served_rps for t in ticks),
                 peak_load=max(t.load for t in ticks),
+                peak_queue=max(t.queue_depth for t in ticks),
                 drop_rate=dropped / inbound if inbound else 0.0,
                 overloaded_s=sum(dt for t in ticks if t.load > 1.0),
             )
@@ -74,6 +81,7 @@ class Simulator:
         self.total_ticks = round(scenario.duration_s * scenario.tick_hz)
         self._rng = random.Random(scenario.seed if seed is None else seed)
         self._order = graph.topological_order()
+        self._queues: dict[str, float] = {node_id: 0.0 for node_id in self._order}
         self._tick = 0
 
     @property
@@ -90,31 +98,46 @@ class Simulator:
         nodes: dict[str, NodeTick] = {}
         for node_id in self._order:
             component = self.graph.component(node_id)
-            demand = inbound[node_id]
-            capacity = component.total_capacity_rps
-            served = min(demand, capacity)
+            demand_rps = inbound[node_id]
+            capacity_rps = component.total_capacity_rps
+
+            if math.isinf(capacity_rps):
+                # The client has no limit: everything it sends goes out this tick.
+                served, dropped, queue, load = demand_rps * self.dt, 0.0, 0.0, 0.0
+            else:
+                # Work in request counts for this tick, not rates.
+                available = self._queues[node_id] + demand_rps * self.dt
+                served = min(available, capacity_rps * self.dt)
+                queue = available - served
+                dropped = max(0.0, queue - component.queue_limit)
+                queue -= dropped
+                load = demand_rps / capacity_rps
+
+            self._queues[node_id] = queue
+            served_rps = served / self.dt
             nodes[node_id] = NodeTick(
-                inbound_rps=demand,
-                served_rps=served,
-                dropped_rps=demand - served,
-                load=demand / capacity if capacity != float("inf") else 0.0,
+                inbound_rps=demand_rps,
+                served_rps=served_rps,
+                dropped_rps=dropped / self.dt,
+                queue_depth=queue,
+                load=load,
             )
-            self._route(node_id, component.type, served, inbound)
+            self._route(node_id, component.type, served_rps, inbound)
 
         self._tick += 1
         return TickSnapshot(t=t, nodes=nodes)
 
-    def _route(self, node_id, kind, served, inbound) -> None:
+    def _route(self, node_id, kind, served_rps, inbound) -> None:
         edges = self.graph.downstream(node_id)
-        if not edges or served == 0:
+        if not edges or served_rps == 0:
             return
         if kind is ComponentType.LOAD_BALANCER:
             total_weight = sum(e.weight for e in edges)
             for e in edges:
-                inbound[e.target] += served * e.weight / total_weight
+                inbound[e.target] += served_rps * e.weight / total_weight
         else:
             for e in edges:
-                inbound[e.target] += served * e.calls_per_request
+                inbound[e.target] += served_rps * e.calls_per_request
 
     def iter_ticks(self) -> Iterator[TickSnapshot]:
         while not self.done:

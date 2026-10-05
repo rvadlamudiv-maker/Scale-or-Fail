@@ -9,23 +9,42 @@ def test_tick_count_matches_duration(graph):
     assert len(Simulator(graph, make_scenario()).run().snapshots) == 100
 
 
-def test_under_capacity_nothing_is_dropped(graph):
+def test_under_capacity_nothing_is_dropped_or_queued(graph):
     for node in Simulator(graph, make_scenario(base_rps=1000)).run().summary().values():
         assert node.drop_rate == 0
+        assert node.peak_queue == 0
 
 
-def test_flow_is_conserved_at_every_node(graph):
-    for snap in Simulator(graph, make_scenario(base_rps=9000, noise=0.2)).run().snapshots:
-        for tick in snap.nodes.values():
-            assert tick.inbound_rps == pytest.approx(tick.served_rps + tick.dropped_rps)
+def test_requests_are_conserved_with_queues(graph):
+    sim = Simulator(graph, make_scenario(base_rps=9000, noise=0.2))
+    prev_queue = {node_id: 0.0 for node_id in graph.topological_order()}
+    for snap in sim.iter_ticks():
+        for node_id, tick in snap.nodes.items():
+            arrived = prev_queue[node_id] + tick.inbound_rps * sim.dt
+            left = (tick.served_rps + tick.dropped_rps) * sim.dt + tick.queue_depth
+            assert arrived == pytest.approx(left)
+            prev_queue[node_id] = tick.queue_depth
 
 
-def test_overload_drops_excess_at_the_bottleneck():
-    snap = Simulator(make_graph(app_instances=2), make_scenario(base_rps=3000)).step()
-    assert snap.nodes["app"].served_rps == 2000
-    assert snap.nodes["app"].dropped_rps == 1000
-    assert snap.nodes["app"].load == pytest.approx(1.5)
-    assert snap.nodes["db"].inbound_rps == 2000
+def test_overload_fills_the_queue_before_dropping():
+    # App: 2 instances = 2,000 rps capacity and a 2,000-request queue. Traffic: 3,000 rps.
+    snaps = Simulator(make_graph(app_instances=2), make_scenario(base_rps=3000)).run().snapshots
+    first, last = snaps[0].nodes["app"], snaps[-1].nodes["app"]
+    assert first.served_rps == pytest.approx(2000)
+    assert first.queue_depth == pytest.approx(100)  # 1,000 rps excess * 0.1 s
+    assert first.dropped_rps == 0
+    assert last.queue_depth == pytest.approx(2000)  # queue is full...
+    assert last.dropped_rps == pytest.approx(1000)  # ...so the excess is dropped
+    assert snaps[-1].nodes["db"].inbound_rps == pytest.approx(2000)
+
+
+def test_queue_drains_after_the_spike():
+    # App: 1,000 rps. Traffic 800 rps, doubled to 1,600 rps from t=2s to t=4s.
+    scenario = make_scenario(base_rps=800, spikes=[{"at_s": 2, "duration_s": 2, "multiplier": 2}])
+    snaps = Simulator(make_graph(app_instances=1), scenario).run().snapshots
+    assert snaps[39].nodes["app"].queue_depth == pytest.approx(1000)  # full at the end of the spike
+    assert snaps[40].nodes["app"].served_rps == pytest.approx(1000)  # still busy after it ends
+    assert snaps[95].nodes["app"].queue_depth == pytest.approx(0)  # drained ~5 s later
 
 
 def test_fanout_multiplies_downstream_calls():

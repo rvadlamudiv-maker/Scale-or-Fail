@@ -23,6 +23,9 @@ DEFAULT_CAPACITY_RPS: dict[ComponentType, float] = {
     ComponentType.DATABASE: 5_000,
 }
 
+# By default a component can queue up to 1 second of work before it drops requests.
+DEFAULT_QUEUE_SECONDS = 1.0
+
 
 class Component(BaseModel):
     id: str = Field(min_length=1)
@@ -31,6 +34,9 @@ class Component(BaseModel):
     capacity_rps: float | None = Field(
         default=None, gt=0, description="Per-instance capacity override."
     )
+    max_queue: float | None = Field(
+        default=None, ge=0, description="Max requests waiting. Default: 1 second of capacity."
+    )
 
     @property
     def total_capacity_rps(self) -> float:
@@ -38,6 +44,14 @@ class Component(BaseModel):
             return math.inf
         per_instance = self.capacity_rps or DEFAULT_CAPACITY_RPS[self.type]
         return per_instance * self.instances
+
+    @property
+    def queue_limit(self) -> float:
+        if self.type is ComponentType.CLIENT:
+            return 0.0
+        if self.max_queue is not None:
+            return self.max_queue
+        return self.total_capacity_rps * DEFAULT_QUEUE_SECONDS
 
 
 class Edge(BaseModel):
