@@ -25,6 +25,9 @@ import { connectionProblem, nextId } from './graph'
 import { toFlow } from './layout'
 import { DRAG_FORMAT, Palette, PALETTE } from './Palette'
 import { SettingsPanel } from './SettingsPanel'
+import { LiveContext } from './live'
+import { Playback } from './Playback'
+import { useReplay } from './useReplay'
 
 // Tell React Flow to draw nodes of type 'component' with our own component.
 const nodeTypes = { component: ComponentNode }
@@ -37,14 +40,23 @@ function Editor({ initial, initialScenario }: { initial: { nodes: FlowNode[]; ed
   const [scenario, setScenario] = useState(initialScenario)
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<RunResult | null>(null)
+  const [runId, setRunId] = useState(0)
   const design = toDesign(nodes, edges)
 
   const run = async () => {
     const scenarioYaml = scenarioOptions.find((s) => s.label === scenario)!.yaml
     setRunning(true)
     setResult(await runSimulation(stringify(design), scenarioYaml))
+    setRunId((id) => id + 1)
     setRunning(false)
   }
+
+  // Replay the run on the canvas, tick by tick.
+  const ticks = result?.ok ? result.ticks : []
+  const secondsPerTick = ticks.length > 1 ? ticks[1].t - ticks[0].t : 0.1
+  const replay = useReplay(ticks.length, secondsPerTick, runId)
+  const frame = ticks[replay.index]
+  const recentEvents = result?.ok && frame ? result.events.filter((e) => e.t <= frame.t && e.t > frame.t - 3) : []
 
   const onConnect = useCallback(
     (c: Connection) => {
@@ -101,18 +113,20 @@ function Editor({ initial, initialScenario }: { initial: { nodes: FlowNode[]; ed
         }}
         onDrop={onDrop}
       >
-        <ReactFlow
-          nodeTypes={nodeTypes}
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          fitView
-        >
-          <Background />
-          <Controls />
-        </ReactFlow>
+        <LiveContext.Provider value={frame ? { nodes: frame.nodes } : null}>
+          <ReactFlow
+            nodeTypes={nodeTypes}
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            fitView
+          >
+            <Background />
+            <Controls />
+          </ReactFlow>
+        </LiveContext.Provider>
         <RunBar
           scenario={scenario}
           onScenarioChange={setScenario}
@@ -120,7 +134,21 @@ function Editor({ initial, initialScenario }: { initial: { nodes: FlowNode[]; ed
           running={running}
           canRun={designProblems(design).length === 0}
         />
-        {result && <ResultsPanel result={result} onClose={() => setResult(null)} />}
+        {frame && !replay.done && (
+          <Playback
+            t={frame.t}
+            duration={ticks.at(-1)!.t + secondsPerTick}
+            ok={frame.ok}
+            e2eMs={frame.e2e_ms}
+            latestEvent={recentEvents.at(-1)?.label ?? null}
+            playing={replay.playing}
+            onPlayPause={() => replay.setPlaying(!replay.playing)}
+            speed={replay.speed}
+            onSpeed={replay.setSpeed}
+            onSkip={replay.skipToEnd}
+          />
+        )}
+        {result && (!result.ok || replay.done) && <ResultsPanel result={result} onClose={() => setResult(null)} />}
         {problem && (
           <div className="editor__problem" role="status">
             {problem}

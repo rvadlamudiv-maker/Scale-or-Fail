@@ -1,6 +1,9 @@
 // How one component looks on the canvas: an icon, its name, what it is, and how many instances run.
+// During a replay it also shows live traffic, and its color shows its health.
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react'
+import { useContext } from 'react'
 import type { Component, ComponentType } from './design'
+import { health, LiveContext } from './live'
 import './ComponentNode.css'
 
 export type ComponentNodeData = { component: Component }
@@ -25,24 +28,42 @@ const ICON: Record<ComponentType, string> = {
   replica: 'M8 8h12v12H8z M16 8V4H4v12h4',
 }
 
+const FLAME = 'M12 2c1.2 3.6 5 6 5 11a5 5 0 0 1-10 0c0-2.4 1.2-3.8 2.4-5 0 2.4 1.2 3.6 2.4 3.6 0-3.6-1.2-6 .2-9.6z'
+
+const fmt = (n: number) => Math.round(n).toLocaleString()
+
 export function ComponentNode({ data, selected }: NodeProps<ComponentNodeType>) {
   const c = data.component
-  const instances = c.instances ?? 1
+  const live = useContext(LiveContext)?.nodes[c.id]
+  const state = c.type === 'client' ? null : health(live)
+  const onFire = state === 'critical' || state === 'down'
+  const instances = live?.instances ?? c.instances ?? 1
   const autoscales = typeof c.max_instances === 'number'
+
+  const classes = ['component-node', selected && 'is-selected', state && `is-${state}`].filter(Boolean).join(' ')
   return (
-    <div className={`component-node${selected ? ' is-selected' : ''}`}>
+    <div className={classes}>
       {c.type !== 'client' && <Handle type="target" position={Position.Left} />}
-      <svg className="component-node__icon" viewBox="0 0 24 24" aria-hidden="true">
-        <path d={ICON[c.type]} />
+      <svg className={`component-node__icon${onFire ? ' is-flame' : ''}`} viewBox="0 0 24 24" aria-hidden="true">
+        <path d={onFire ? FLAME : ICON[c.type]} />
       </svg>
       <div className="component-node__text">
         <span className="component-node__name">{c.id}</span>
-        <span className="component-node__kind">{KIND[c.type]}</span>
+        {live ? (
+          <>
+            <span className="component-node__live">
+              {fmt(live.served)} rps{c.type !== 'client' && ` · ${Math.round(live.load * 100)}%`}
+            </span>
+            {live.failed > 0 && <span className="component-node__failed">−{fmt(live.failed)} rps failing</span>}
+          </>
+        ) : (
+          <span className="component-node__kind">{KIND[c.type]}</span>
+        )}
       </div>
       {c.type !== 'client' && (
         <span className="component-node__count" title={autoscales ? 'Autoscales' : 'Instances'}>
           ×{instances}
-          {autoscales && `–${c.max_instances}`}
+          {autoscales && !live && `–${c.max_instances}`}
         </span>
       )}
       <Handle type="source" position={Position.Right} />

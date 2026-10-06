@@ -288,3 +288,84 @@ body,
   color: var(--muted);
   cursor: pointer;
 }
+
+/* Replay HUD: top left of the canvas */
+.playback {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  max-width: 460px;
+}
+
+.playback__stats {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.playback__stats b {
+  font-family: var(--font-data);
+}
+
+.playback__clock {
+  font-family: var(--font-data);
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.playback__clock span {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.is-good {
+  color: var(--healthy);
+}
+
+.is-warn {
+  color: var(--warning);
+}
+
+.is-bad {
+  color: var(--critical);
+}
+
+.playback__controls {
+  display: flex;
+  gap: 6px;
+}
+
+.playback__controls button {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--ground);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.playback__controls button.is-active {
+  border-color: var(--healthy);
+  color: var(--healthy);
+}
+
+.playback__event {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--critical);
+  background: #3a140c;
+  font-size: 13px;
+}

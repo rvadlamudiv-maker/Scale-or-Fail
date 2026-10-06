@@ -59,3 +59,78 @@
   background: var(--line);
   border: 2px solid var(--panel);
 }
+
+/* Live state during a replay. Color only ever means health. */
+.component-node__live {
+  font-family: var(--font-data);
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.component-node__failed {
+  color: var(--critical);
+}
+
+.component-node.is-healthy {
+  border-color: var(--healthy);
+}
+
+.component-node.is-warning {
+  border-color: var(--warning);
+  background: #241d0e;
+}
+
+.component-node.is-warning .component-node__icon {
+  stroke: var(--warning);
+}
+
+.component-node.is-critical,
+.component-node.is-down {
+  border: 2px solid var(--critical);
+  padding: 9px 11px;
+  background: #3a140c;
+  box-shadow:
+    0 0 0 4px rgba(255, 90, 54, 0.18),
+    0 0 32px rgba(255, 90, 54, 0.45);
+}
+
+.component-node__icon.is-flame {
+  fill: var(--critical);
+  stroke: none;
+  animation: flicker 0.6s ease-in-out infinite alternate;
+  transform-origin: 50% 90%;
+}
+
+@keyframes flicker {
+  from {
+    transform: scale(0.92) rotate(-3deg);
+  }
+  to {
+    transform: scale(1.06) rotate(3deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .component-node__icon.is-flame {
+    animation: none;
+  }
+}
+
+/* Room for live numbers: the text column takes the free space and never pushes past the count. */
+.component-node {
+  width: 200px;
+}
+
+.component-node__text {
+  flex: 1;
+}
+
+.component-node__live,
+.component-node__failed {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-data);
+  font-size: 12px;
+}
