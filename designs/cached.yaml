@@ -1,0 +1,28 @@
+# Client -> LB -> App (4 instances) -> Cache -> DB (small: 2,000 rps)
+# Each app request makes 1.5 reads; the cache answers hits, only misses reach the DB.
+# Warm cache: 5-minute TTL, 50,000 hot keys.
+components:
+  - id: client
+    type: client
+  - id: lb
+    type: load_balancer
+  - id: app
+    type: app_server
+    instances: 4
+    timeout_ms: 500
+  - id: cache
+    type: cache
+    ttl_s: 300
+  - id: db
+    type: database
+    capacity_rps: 2000
+edges:
+  - source: client
+    target: lb
+  - source: lb
+    target: app
+  - source: app
+    target: cache
+    calls_per_request: 1.5
+  - source: cache
+    target: db

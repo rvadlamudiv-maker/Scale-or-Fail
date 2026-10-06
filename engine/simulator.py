@@ -14,6 +14,9 @@ Day 3: callers retry failed calls. Failed traffic on an edge with retries comes
 back to the same target after a delay, as extra load, up to the retry limit.
 The delay can be fixed or exponential, with optional jitter to spread retries out,
 and an optional retry budget caps retries at a fraction of first attempts.
+
+Caches serve hits themselves and forward only misses downstream. Their hit ratio
+follows a TTL-cache model and warms up gradually after a cold start.
 """
 
 from __future__ import annotations
@@ -41,6 +44,7 @@ class NodeTick:
     queue_depth: float  # requests waiting at the end of this tick
     latency_ms: float  # time a request spends at this node (processing + waiting)
     load: float  # demand / capacity; > 1.0 means overloaded
+    hit_ratio: float = 0.0  # caches only: share of requests served from the cache
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +130,8 @@ class Simulator:
         self._queues: dict[str, float] = {node_id: 0.0 for node_id in self._order}
         # Retries waiting to be re-sent, keyed by the tick they arrive on.
         self._pending_retries: defaultdict[int, list[Arrival]] = defaultdict(list)
+        # Current hit ratio of every cache.
+        self._hit_ratios: dict[str, float] = {}
         self._tick = 0
 
     @property
@@ -177,6 +183,9 @@ class Simulator:
             self._queues[node_id] = queue
             served_rps = served / self.dt
             failed_rps = (dropped + timed_out) / self.dt
+            hit_ratio = 0.0
+            if component.type is ComponentType.CACHE:
+                hit_ratio = self._update_hit_ratio(node_id, component, demand_rps)
             nodes[node_id] = NodeTick(
                 inbound_rps=demand_rps,
                 retry_rps=retry_in[node_id],
@@ -186,9 +195,10 @@ class Simulator:
                 queue_depth=queue,
                 latency_ms=latency_ms,
                 load=load,
+                hit_ratio=hit_ratio,
             )
             self._schedule_retries(arrivals[node_id], failed_rps, demand_rps)
-            self._route(node_id, component.type, served_rps, inbound, arrivals)
+            self._route(node_id, component.type, served_rps * (1 - hit_ratio), inbound, arrivals)
 
         self._tick += 1
         return TickSnapshot(t=t, nodes=nodes, end_to_end_ms=self._end_to_end_ms(nodes))
@@ -228,6 +238,22 @@ class Simulator:
                 # Everyone waits exactly the same time, so the retries land together.
                 self._pending_retries[self._tick + delay_ticks].append((edge, attempt + 1, retry_rate))
 
+    def _update_hit_ratio(self, node_id: str, component, demand_rps: float) -> float:
+        """TTL cache: after a miss, a key stays cached for ttl_s, so a key requested r times
+        per second hits r*T / (1 + r*T) of the time. Traffic is spread over the working set."""
+        per_key_rate = demand_rps / component.working_set
+        x = per_key_rate * component.ttl_s
+        target = component.max_hit_ratio * x / (1 + x)
+        current = self._hit_ratios.get(node_id)
+        if current is None:
+            current = 0.0 if component.cold_start else target
+        elif demand_rps > 0:
+            # Filling up takes about as long as it takes every hot key to be requested once.
+            warmup_s = component.working_set / demand_rps
+            current += (target - current) * min(1.0, self.dt / warmup_s)
+        self._hit_ratios[node_id] = current
+        return current
+
     def _end_to_end_ms(self, nodes: dict[str, NodeTick]) -> float:
         """Walk the graph bottom-up: a node's total = its own latency + what it waits on downstream."""
         total: dict[str, float] = {}
@@ -240,6 +266,8 @@ class Simulator:
             else:
                 # Each downstream call is made in turn, so their latencies add up.
                 downstream = sum(e.calls_per_request * total[e.target] for e in edges)
+                # A cache only goes downstream on a miss.
+                downstream *= 1 - nodes[node_id].hit_ratio
             total[node_id] = nodes[node_id].latency_ms + downstream
         return total[self.graph.client_id]
 

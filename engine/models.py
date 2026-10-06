@@ -15,6 +15,7 @@ class ComponentType(StrEnum):
     LOAD_BALANCER = "load_balancer"
     APP_SERVER = "app_server"
     DATABASE = "database"
+    CACHE = "cache"
 
 
 # Requests per second one instance can serve before it saturates.
@@ -22,6 +23,7 @@ DEFAULT_CAPACITY_RPS: dict[ComponentType, float] = {
     ComponentType.LOAD_BALANCER: 50_000,
     ComponentType.APP_SERVER: 1_000,
     ComponentType.DATABASE: 5_000,
+    ComponentType.CACHE: 50_000,
 }
 
 # Time one request spends being processed when the component is idle (milliseconds).
@@ -29,6 +31,7 @@ DEFAULT_SERVICE_MS: dict[ComponentType, float] = {
     ComponentType.LOAD_BALANCER: 1,
     ComponentType.APP_SERVER: 20,
     ComponentType.DATABASE: 5,
+    ComponentType.CACHE: 1,
 }
 
 # By default a component can queue up to 1 second of work before it drops requests.
@@ -51,6 +54,11 @@ class Component(BaseModel):
     timeout_ms: float | None = Field(
         default=None, gt=0, description="Requests waiting longer than this give up. None = wait forever."
     )
+    # Cache settings (only used when type is "cache").
+    max_hit_ratio: float = Field(default=0.9, ge=0, le=1, description="Share of requests that are cacheable.")
+    ttl_s: float = Field(default=300, gt=0, description="How long a cached entry lives (seconds).")
+    working_set: int = Field(default=50_000, ge=1, description="Number of distinct hot keys.")
+    cold_start: bool = Field(default=False, description="Start with an empty cache.")
 
     @property
     def total_capacity_rps(self) -> float:
