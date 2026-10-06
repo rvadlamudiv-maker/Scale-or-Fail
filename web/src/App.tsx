@@ -14,8 +14,13 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useCallback, useState, type DragEvent } from 'react'
+import { stringify } from 'yaml'
 import { ComponentNode } from './ComponentNode'
-import { designOptions, parseDesign, type Component, type ComponentType } from './design'
+import { DEFAULT_SCENARIO, designOptions, parseDesign, scenarioOptions, type Component, type ComponentType } from './design'
+import { runSimulation, type RunResult } from './engine/client'
+import { designProblems, toDesign } from './exportDesign'
+import { ResultsPanel } from './ResultsPanel'
+import { RunBar } from './RunBar'
 import { connectionProblem, nextId } from './graph'
 import { toFlow } from './layout'
 import { DRAG_FORMAT, Palette, PALETTE } from './Palette'
@@ -24,11 +29,22 @@ import { SettingsPanel } from './SettingsPanel'
 // Tell React Flow to draw nodes of type 'component' with our own component.
 const nodeTypes = { component: ComponentNode }
 
-function Editor({ initial }: { initial: { nodes: FlowNode[]; edges: FlowEdge[] } }) {
+function Editor({ initial, initialScenario }: { initial: { nodes: FlowNode[]; edges: FlowEdge[] }; initialScenario: string }) {
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges)
   const [problem, setProblem] = useState<string | null>(null)
   const { screenToFlowPosition } = useReactFlow()
+  const [scenario, setScenario] = useState(initialScenario)
+  const [running, setRunning] = useState(false)
+  const [result, setResult] = useState<RunResult | null>(null)
+  const design = toDesign(nodes, edges)
+
+  const run = async () => {
+    const scenarioYaml = scenarioOptions.find((s) => s.label === scenario)!.yaml
+    setRunning(true)
+    setResult(await runSimulation(stringify(design), scenarioYaml))
+    setRunning(false)
+  }
 
   const onConnect = useCallback(
     (c: Connection) => {
@@ -97,6 +113,14 @@ function Editor({ initial }: { initial: { nodes: FlowNode[]; edges: FlowEdge[] }
           <Background />
           <Controls />
         </ReactFlow>
+        <RunBar
+          scenario={scenario}
+          onScenarioChange={setScenario}
+          onRun={run}
+          running={running}
+          canRun={designProblems(design).length === 0}
+        />
+        {result && <ResultsPanel result={result} onClose={() => setResult(null)} />}
         {problem && (
           <div className="editor__problem" role="status">
             {problem}
@@ -129,7 +153,7 @@ export default function App() {
       </header>
       {/* key={selected} gives each design a fresh editor */}
       <ReactFlowProvider key={selected}>
-        <Editor initial={initial} />
+        <Editor initial={initial} initialScenario={designOptions[selected].scenario ?? DEFAULT_SCENARIO} />
       </ReactFlowProvider>
     </div>
   )

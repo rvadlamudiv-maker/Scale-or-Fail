@@ -40,15 +40,33 @@ const incidentFiles = import.meta.glob('../../incidents/*/starter.yaml', { query
 export interface DesignOption {
   label: string
   yaml: string
+  scenario?: string // incident starters come with their own scenario
 }
+
+const incidentName = (path: string) => path.split('/').at(-2)!
 
 export const designOptions: DesignOption[] = [
   ...Object.entries(incidentFiles).map(([path, text]) => ({
-    label: `Incident: ${path.split('/').at(-2)} (starter)`,
+    label: `Incident: ${incidentName(path)} (starter)`,
     yaml: text as string,
+    scenario: `Incident: ${incidentName(path)}`,
   })),
   ...Object.entries(designFiles).map(([path, text]) => ({
     label: `Design: ${path.split('/').at(-1)!.replace('.yaml', '')}`,
     yaml: text as string,
   })),
 ]
+
+// Every scenario: the real-outage incidents first, then the practice scenarios.
+const incidentScenarios = import.meta.glob('../../incidents/*/scenario.yaml', { query: '?raw', import: 'default', eager: true })
+const practiceScenarios = import.meta.glob('../../scenarios/*.yaml', { query: '?raw', import: 'default', eager: true })
+
+export const scenarioOptions: { label: string; yaml: string }[] = [
+  ...Object.entries(incidentScenarios).map(([path, text]) => ({ label: `Incident: ${incidentName(path)}`, yaml: text as string })),
+  ...Object.entries(practiceScenarios).map(([path, text]) => ({
+    label: `Scenario: ${path.split('/').at(-1)!.replace('.yaml', '')}`,
+    yaml: text as string,
+  })),
+]
+
+export const DEFAULT_SCENARIO = 'Scenario: url_shortener'
