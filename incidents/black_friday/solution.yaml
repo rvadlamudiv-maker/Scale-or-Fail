@@ -1,0 +1,30 @@
+# Black Friday - the cheapest design that survives.
+# 1. Pre-scale: it's on the calendar, so the web tier is at 15 servers before doors open.
+# 2. Cache the reads: product pages are the same for everyone, so one database is plenty.
+components:
+  - id: client
+    type: client
+  - id: lb
+    type: load_balancer
+  - id: web
+    type: app_server
+    instances: 15
+    timeout_ms: 500
+  - id: cache
+    type: cache
+  - id: db
+    type: database
+    instances: 1
+edges:
+  - source: client
+    target: lb
+  - source: lb
+    target: web
+  - source: web
+    target: cache
+    calls_per_request: 1.4
+  - source: cache
+    target: db
+  - source: web
+    target: db
+    calls_per_request: 0.1

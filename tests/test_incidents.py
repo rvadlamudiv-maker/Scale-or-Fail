@@ -9,6 +9,9 @@ from engine.scoring import score
 from engine.simulator import Simulator
 
 INCIDENTS = sorted(p for p in (Path(__file__).resolve().parent.parent / "incidents").iterdir() if p.is_dir())
+# Scenarios that aren't based on one specific outage (so they have no postmortem to cite).
+GENERIC = {"black_friday"}
+REAL_INCIDENTS = [p for p in INCIDENTS if p.name not in GENERIC]
 GRADE_ORDER = "FDCBAS"
 
 
@@ -16,7 +19,7 @@ def run(folder: Path, design: str):
     return Simulator(load_design(folder / f"{design}.yaml"), load_scenario(folder / "scenario.yaml")).run()
 
 
-@pytest.mark.parametrize("folder", INCIDENTS, ids=lambda p: p.name)
+@pytest.mark.parametrize("folder", REAL_INCIDENTS, ids=lambda p: p.name)
 def test_incident_has_its_story_and_sources(folder):
     incident = load_scenario(folder / "scenario.yaml").incident
     assert incident is not None
@@ -88,3 +91,19 @@ def test_you_cannot_buy_your_way_out_of_a_split_brain():
     assert result.diverged_writes > 0
     assert score_run(result).grade in "DF"
     assert run(folder, "solution").diverged_writes == 0
+
+
+def test_black_friday_rewards_planning_over_spending():
+    import yaml
+
+    from engine.models import SystemGraph
+    from engine.scoring import score as score_run
+
+    folder = Path(__file__).resolve().parent.parent / "incidents" / "black_friday"
+    scenario = load_scenario(folder / "scenario.yaml")
+    overkill = yaml.safe_load(open(folder / "solution.yaml"))
+    next(c for c in overkill["components"] if c["id"] == "web")["instances"] = 30
+    lean, big = run(folder, "solution"), Simulator(SystemGraph.model_validate(overkill), scenario).run()
+    # Both survive; the lean, planned design scores higher because it doesn't blow the budget.
+    assert lean.availability > 0.999 and big.availability > 0.999
+    assert score_run(lean).total > score_run(big).total

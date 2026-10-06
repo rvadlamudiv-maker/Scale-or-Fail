@@ -1,0 +1,21 @@
+name: Black Friday
+description: The one outage you can see coming. Traffic climbs all morning, then the doorbuster sale doubles it again - and you get to plan for it.
+duration_s: 90
+tick_hz: 10
+seed: 42
+traffic:
+  base_rps: 3000
+  noise: 0.05
+  spikes:
+    # Doors open: traffic is 2.5x normal for the rest of the day.
+    - at_s: 10
+      duration_s: 80
+      multiplier: 2.5
+    # The doorbuster deal goes live: double that again for 10 seconds.
+    - at_s: 40
+      duration_s: 10
+      multiplier: 2
+goals:
+  availability: 0.999
+  p99_ms: 500
+  budget_per_hour: 2500
