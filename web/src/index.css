@@ -49,3 +49,64 @@ body,
   font-family: var(--font-data);
   font-size: 12px;
 }
+
+/* App shell */
+.app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.app__header {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.app__title {
+  font-weight: 700;
+  font-size: 17px;
+}
+
+.app__picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.app__picker select {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+.editor {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.editor__canvas {
+  flex: 1;
+  position: relative;
+}
+
+.editor__problem {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  border: 1px solid var(--warning);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--warning);
+  font-size: 14px;
+}

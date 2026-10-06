@@ -1,0 +1,46 @@
+.palette {
+  width: 220px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-right: 1px solid var(--line);
+  background: var(--ground);
+}
+
+.palette__title {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.palette__item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  cursor: grab;
+  font-size: 14px;
+}
+
+.palette__item:active {
+  cursor: grabbing;
+}
+
+.palette__price {
+  font-family: var(--font-data);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.palette__hint {
+  margin: auto 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
