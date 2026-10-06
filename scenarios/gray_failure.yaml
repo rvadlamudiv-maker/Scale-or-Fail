@@ -1,0 +1,19 @@
+name: Gray Failure
+description: One app server's disk degrades - it gets 10x slower but keeps passing health checks.
+duration_s: 60
+tick_hz: 10
+seed: 42
+traffic:
+  base_rps: 3000
+  noise: 0.05
+goals:
+  availability: 0.999
+  p99_ms: 500
+  budget_per_hour: 1500
+events:
+  - at_s: 15
+    kind: gray_failure
+    target: app
+    count: 1
+    factor: 10
+    duration_s: 30

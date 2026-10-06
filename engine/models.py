@@ -80,6 +80,11 @@ class Component(BaseModel):
     warmup_s: float = Field(default=30, ge=0, description="Seconds before a new instance can serve traffic.")
     scale_in_after_s: float = Field(default=60, ge=0, description="Low load must last this long before scaling in.")
     price_per_hour: float | None = Field(default=None, ge=0, description="Per-instance price override ($/hour).")
+    balancing: Literal["round_robin", "least_outstanding"] = Field(
+        default="round_robin",
+        description="How traffic is spread over this component's instances. least_outstanding sends "
+        "less traffic to slow instances (like outlier detection); round_robin sends everyone the same.",
+    )
 
     @property
     def hourly_price(self) -> float:

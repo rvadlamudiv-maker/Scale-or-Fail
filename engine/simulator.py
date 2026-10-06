@@ -45,6 +45,10 @@ trigger is gone: a metastable failure.
 Tail-latency amplification: a parallel fan-out waits for its slowest call. With
 exponential response times (mean m), the slowest of N takes m * H_N on average,
 where H_N = 1 + 1/2 + ... + 1/N, so the more you fan out, the more the tail hurts.
+
+Gray failures: some instances get slow but still pass health checks. With
+round-robin balancing they keep getting an equal share of traffic and drown;
+least-outstanding balancing notices they are slow and sends them less.
 """
 
 from __future__ import annotations
@@ -214,6 +218,9 @@ class Simulator:
         self._low_load_since: dict[str, int | None] = {n: None for n in self._order}
         # Chaos: how many times slower each node currently runs.
         self._slowdown: dict[str, float] = {n: 1.0 for n in self._order}
+        # Gray failures: (how many instances, how many times slower), and their own backlog.
+        self._gray: dict[str, tuple[int, float]] = {n: (0, 1.0) for n in self._order}
+        self._gray_queues: dict[str, float] = {n: 0.0 for n in self._order}
         # Events aimed at a component this design doesn't have (e.g. flushing a cache in a
         # design without one) simply don't happen; the rest must make sense.
         self._events = [e for e in scenario.events if e.target in self._instances]
@@ -259,31 +266,19 @@ class Simulator:
 
             if math.isinf(capacity_rps):
                 # The client has no limit: everything it sends goes out this tick.
+                self._queues[node_id] = 0.0
                 served, dropped, timed_out, queue, load = demand_rps * self.dt, 0.0, 0.0, 0.0, 0.0
                 latency_ms = 0.0
             elif capacity_rps <= 0:
                 # Every instance is down: everything that arrives (or was waiting) fails.
                 served, timed_out, queue, latency_ms = 0.0, 0.0, 0.0, 0.0
-                dropped = self._queues[node_id] + demand_rps * self.dt
+                dropped = self._queues[node_id] + self._gray_queues[node_id] + demand_rps * self.dt
+                self._queues[node_id] = self._gray_queues[node_id] = 0.0
                 load = 10.0 if demand_rps > 0 else 0.0
             else:
-                # Work in request counts for this tick, not rates.
-                available = self._queues[node_id] + demand_rps * self.dt
-                served = min(available, capacity_rps * self.dt)
-                queue = available - served
-                # Requests that would wait longer than the timeout give up.
-                timed_out = 0.0
-                if component.timeout_ms is not None:
-                    max_waiting = capacity_rps * component.timeout_ms / 1000
-                    timed_out = max(0.0, queue - max_waiting)
-                    queue -= timed_out
-                # Whatever still doesn't fit in the queue is rejected.
-                dropped = max(0.0, queue - self._queue_limit(component, capacity_rps))
-                queue -= dropped
+                served, dropped, timed_out, queue, latency_ms = self._serve(node_id, component, demand_rps, capacity_rps)
                 load = demand_rps / capacity_rps
-                latency_ms = self._latency_ms(self._service_ms(node_id), capacity_rps, served / self.dt, queue)
 
-            self._queues[node_id] = queue
             served_rps = served / self.dt
             failed_rps = (dropped + timed_out) / self.dt
             hit_ratio = 0.0
@@ -368,6 +363,62 @@ class Simulator:
         per_instance = component.total_capacity_rps / component.instances
         return per_instance * self._instances[node_id] / self._slowdown[node_id]
 
+    def _run_queue(self, component, queue: float, demand_rps: float, capacity_rps: float):
+        """One tick of one queue, in request counts: serve, then time out, then drop the overflow."""
+        available = queue + demand_rps * self.dt
+        served = min(available, capacity_rps * self.dt)
+        queue = available - served
+        # Requests that would wait longer than the timeout give up.
+        timed_out = 0.0
+        if component.timeout_ms is not None:
+            max_waiting = capacity_rps * component.timeout_ms / 1000
+            timed_out = max(0.0, queue - max_waiting)
+            queue -= timed_out
+        # Whatever still doesn't fit in the queue is rejected.
+        dropped = max(0.0, queue - self._queue_limit(component, capacity_rps))
+        queue -= dropped
+        return served, dropped, timed_out, queue
+
+    def _serve(self, node_id: str, component, demand_rps: float, capacity_rps: float):
+        """Serve this tick's traffic. Healthy and gray (slow) instances get separate queues."""
+        service_ms = self._service_ms(node_id)
+        instances = self._instances[node_id]
+        gray_count, factor = self._gray[node_id]
+        gray_count = min(gray_count, instances)
+        if gray_count == 0:
+            served, dropped, timed_out, queue = self._run_queue(
+                component, self._queues[node_id], demand_rps, capacity_rps
+            )
+            self._queues[node_id] = queue
+            latency_ms = self._latency_ms(service_ms, capacity_rps, served / self.dt, queue)
+            return served, dropped, timed_out, queue, latency_ms
+
+        per_instance = capacity_rps / instances
+        healthy_capacity = per_instance * (instances - gray_count)
+        gray_capacity = per_instance * gray_count / factor
+        if component.balancing == "least_outstanding":
+            # Slow instances finish fewer requests, so they hold more outstanding ones and get picked less.
+            gray_share = gray_capacity / (healthy_capacity + gray_capacity)
+        else:
+            gray_share = gray_count / instances  # round robin: everyone gets the same share
+
+        totals = [0.0, 0.0, 0.0, 0.0]
+        weighted_latency = 0.0
+        parts = [
+            (self._queues, healthy_capacity, 1 - gray_share, service_ms),
+            (self._gray_queues, gray_capacity, gray_share, service_ms * factor),
+        ]
+        for queues, part_capacity, share, part_service_ms in parts:
+            if part_capacity <= 0:
+                continue
+            result = self._run_queue(component, queues[node_id], demand_rps * share, part_capacity)
+            queues[node_id] = result[3]
+            totals = [a + b for a, b in zip(totals, result)]
+            part_latency = self._latency_ms(part_service_ms, part_capacity, result[0] / self.dt, result[3])
+            weighted_latency += share * part_latency
+        served, dropped, timed_out, queue = totals
+        return served, dropped, timed_out, queue, weighted_latency
+
     def _service_ms(self, node_id: str) -> float:
         return self.graph.component(node_id).service_time_ms * self._slowdown[node_id]
 
@@ -388,12 +439,19 @@ class Simulator:
                     self._hit_ratios[event.target] = 0.0
                 elif event.kind == "slow_down":
                     self._slowdown[event.target] = event.factor
+                elif event.kind == "gray_failure":
+                    self._gray[event.target] = (event.count, event.factor)
             elif self._tick == end:
                 labels.append(f"recovered: {event.label()}")
                 if event.kind == "kill_instances":
                     self._instances[event.target] += event.count
                 elif event.kind == "slow_down":
                     self._slowdown[event.target] = 1.0
+                elif event.kind == "gray_failure":
+                    self._gray[event.target] = (0, 1.0)
+                    # Requests still waiting on the (now healthy again) instances join the main queue.
+                    self._queues[event.target] += self._gray_queues[event.target]
+                    self._gray_queues[event.target] = 0.0
         return labels
 
     @staticmethod

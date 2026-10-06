@@ -38,13 +38,15 @@ class ChaosEvent(BaseModel):
     kill_instances: `count` instances of `target` die (they come back after duration_s, if set).
     cache_flush:    the `target` cache loses everything and has to warm up again.
     slow_down:      `target` becomes `factor` times slower (and serves `factor` times less).
+    gray_failure:   `count` instances of `target` become `factor` times slower but still pass
+                    health checks, so they keep getting traffic.
     """
 
     at_s: float = Field(ge=0, description="When it happens (simulated seconds).")
-    kind: Literal["kill_instances", "cache_flush", "slow_down"]
+    kind: Literal["kill_instances", "cache_flush", "slow_down", "gray_failure"]
     target: str = Field(min_length=1, description="Component id it hits.")
-    count: int = Field(default=1, ge=1, description="kill_instances: how many instances die.")
-    factor: float = Field(default=2.0, gt=1, description="slow_down: how many times slower.")
+    count: int = Field(default=1, ge=1, description="kill_instances / gray_failure: how many instances.")
+    factor: float = Field(default=2.0, gt=1, description="slow_down / gray_failure: how many times slower.")
     duration_s: float | None = Field(default=None, gt=0, description="How long it lasts. None = permanent.")
 
     def label(self) -> str:
@@ -52,6 +54,7 @@ class ChaosEvent(BaseModel):
             "kill_instances": f"{self.count} {self.target} instance(s) killed",
             "cache_flush": f"{self.target} flushed",
             "slow_down": f"{self.target} {self.factor:g}x slower",
+            "gray_failure": f"{self.count} {self.target} instance(s) {self.factor:g}x slower, still passing health checks",
         }[self.kind]
         return what + (f" for {self.duration_s:g}s" if self.duration_s else "")
 
