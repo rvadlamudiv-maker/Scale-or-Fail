@@ -133,6 +133,10 @@ class Edge(BaseModel):
     pool_size: int | None = Field(
         default=None, ge=1, description="Max open connections from source to target. None = unlimited."
     )
+    caller_timeout_ms: float | None = Field(
+        default=None, gt=0,
+        description="The source gives up on a call after this long, but the target still does the work.",
+    )
 
 
 class SystemGraph(BaseModel):

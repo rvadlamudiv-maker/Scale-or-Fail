@@ -55,7 +55,7 @@ def _fmt(n: float) -> str:
 
 def print_timeline(result: SimulationResult, every_s: float) -> None:
     node_ids = list(result.snapshots[0].nodes)
-    table = Table(title="Served RPS over time  (-N = failed: dropped + timed out + no connection)")
+    table = Table(title="Served RPS over time  (-N = failed: dropped + timed out + no connection + caller gave up)")
     table.add_column("t (s)", justify="right")
     for node_id in node_ids:
         table.add_column(node_id, justify="right")
@@ -66,7 +66,7 @@ def print_timeline(result: SimulationResult, every_s: float) -> None:
         for node_id in node_ids:
             tick = snap.nodes[node_id]
             text = _fmt(tick.served_rps)
-            failed = tick.dropped_rps + tick.timed_out_rps + tick.pool_rejected_rps
+            failed = tick.dropped_rps + tick.timed_out_rps + tick.pool_rejected_rps + tick.wasted_rps
             if failed > 0:
                 text += f" (-{_fmt(failed)})"
             cells.append(f"[{_style_for_load(tick.load)}]{text}[/]")
@@ -96,7 +96,7 @@ def print_summary(result: SimulationResult) -> None:
     for col in columns:
         table.add_column(col, justify="left" if col in ("node", "notes") else "right")
     for node_id, s in result.summary().items():
-        failed = s.drop_rate + s.timeout_rate + s.pool_reject_rate
+        failed = s.drop_rate + s.timeout_rate + s.pool_reject_rate + s.wasted_rate
         table.add_row(
             node_id,
             _fmt(s.avg_inbound_rps),

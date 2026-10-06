@@ -36,6 +36,11 @@ the graph bottom-up. A call succeeds if its target and everything the target
 depends on succeed; retries give failed calls extra chances.
 
 Chaos events break things mid-run: kill instances, flush a cache, slow a component down.
+
+Wasted work: when a caller times out (caller_timeout_ms), the target doesn't know.
+It still processes the request, using capacity for an answer nobody is waiting for,
+and the caller may retry. That feedback loop can keep a system overloaded after the
+trigger is gone: a metastable failure.
 """
 
 from __future__ import annotations
@@ -68,6 +73,7 @@ class NodeTick:
     load: float  # demand / capacity; > 1.0 means overloaded
     hit_ratio: float = 0.0  # caches only: share of requests served from the cache
     pool_rejected_rps: float = 0.0  # calls that never got a connection to this node
+    wasted_rps: float = 0.0  # served, but the caller had already given up (wasted work)
     replication_rps: float = 0.0  # replicas only: writes replayed from the primary
     replication_lag_ms: float = 0.0  # replicas only: how far behind the primary it is
     instances: int = 0  # instances serving traffic this tick
@@ -97,6 +103,7 @@ class NodeSummary:
     timeout_rate: float
     retry_share: float  # fraction of all arrivals that were retries
     pool_reject_rate: float  # calls rejected for lack of a connection, vs. calls attempted
+    wasted_rate: float  # work done for callers that had already given up, vs. calls attempted
     avg_hit_ratio: float  # caches only
     peak_replication_lag_ms: float  # replicas only
     avg_instances: float
@@ -153,6 +160,7 @@ class SimulationResult:
             timed_out = sum(t.timed_out_rps for t in ticks)
             retries = sum(t.retry_rps for t in ticks)
             pool_rejected = sum(t.pool_rejected_rps for t in ticks)
+            wasted = sum(t.wasted_rps for t in ticks)
             out[node_id] = NodeSummary(
                 avg_inbound_rps=inbound / n,
                 avg_served_rps=sum(t.served_rps for t in ticks) / n,
@@ -164,6 +172,7 @@ class SimulationResult:
                 timeout_rate=timed_out / inbound if inbound else 0.0,
                 retry_share=retries / inbound if inbound else 0.0,
                 pool_reject_rate=pool_rejected / (inbound + pool_rejected) if inbound + pool_rejected else 0.0,
+                wasted_rate=wasted / (inbound + pool_rejected) if inbound + pool_rejected else 0.0,
                 avg_hit_ratio=sum(t.hit_ratio for t in ticks) / n,
                 peak_replication_lag_ms=max(t.replication_lag_ms for t in ticks),
                 avg_instances=sum(t.instances for t in ticks) / n,
@@ -276,6 +285,8 @@ class Simulator:
             hit_ratio = 0.0
             if component.type is ComponentType.CACHE:
                 hit_ratio = self._update_hit_ratio(node_id, component, demand_rps)
+            late_calls = self._late_calls(arrivals[node_id], served_rps, demand_rps, latency_ms, queue, capacity_rps)
+            wasted_rps = sum(rate for _, _, rate in late_calls)
             booting = sum(count for _, count in self._booting[node_id])
             replication_lag_ms = 0.0
             if component.type is ComponentType.REPLICA:
@@ -291,6 +302,7 @@ class Simulator:
                 load=load,
                 hit_ratio=hit_ratio,
                 pool_rejected_rps=pool_rejected_rps,
+                wasted_rps=wasted_rps,
                 replication_rps=replication_rps,
                 replication_lag_ms=replication_lag_ms,
                 instances=self._instances[node_id],
@@ -300,6 +312,8 @@ class Simulator:
             if component.max_instances is not None:
                 self._autoscale(node_id, component, demand_rps)
             self._schedule_retries(arrivals[node_id], failed_rps, demand_rps)
+            if wasted_rps > 0:
+                self._schedule_retries(late_calls, wasted_rps, wasted_rps)  # the caller saw these fail
             # Only real requests go downstream: not cache hits, not replicated writes.
             read_share = 1 - replication_rps / demand_rps if demand_rps else 1.0
             self._route(node_id, component.type, served_rps * (1 - hit_ratio) * read_share, inbound, arrivals)
@@ -321,7 +335,7 @@ class Simulator:
         for node_id in reversed(self._order):
             n = nodes[node_id]
             attempted = n.inbound_rps + n.pool_rejected_rps
-            failed = n.dropped_rps + n.timed_out_rps + n.pool_rejected_rps
+            failed = n.dropped_rps + n.timed_out_rps + n.pool_rejected_rps + n.wasted_rps
             own = 1 - min(1.0, failed / attempted) if attempted > 0 else 1.0
             edges = self.graph.downstream(node_id)
             if self.graph.component(node_id).type is ComponentType.LOAD_BALANCER:
@@ -473,6 +487,29 @@ class Simulator:
             else:
                 high = mid
         return low
+
+    @staticmethod
+    def _late_calls(arrivals, served_rps, demand_rps, latency_ms, queue, capacity_rps) -> list[Arrival]:
+        """Served calls whose caller timed out first.
+
+        A call waits behind the backlog (a fixed wait, queue / capacity) and is then processed
+        (an exponential time, M/M/1). If the backlog alone exceeds the caller's timeout, every
+        served call is late; otherwise the chance is exp(-(timeout - wait) / processing).
+        """
+        if served_rps == 0 or demand_rps == 0 or capacity_rps <= 0 or math.isinf(capacity_rps):
+            return []
+        wait_ms = queue / capacity_rps * 1000
+        processing_ms = max(latency_ms - wait_ms, 1e-9)
+        late = []
+        for edge, attempt, rate in arrivals:
+            if edge.caller_timeout_ms is None:
+                continue
+            slack_ms = edge.caller_timeout_ms - wait_ms
+            late_fraction = 1.0 if slack_ms <= 0 else math.exp(-slack_ms / processing_ms)
+            served_share = rate * min(1.0, served_rps / demand_rps)
+            if late_fraction * served_share > 0:
+                late.append((edge, attempt, served_share * late_fraction))
+        return late
 
     def _schedule_retries(self, arrivals: list[Arrival], failed_rps: float, demand_rps: float) -> None:
         """Each caller's share of this tick's failures comes back later, if it has retries left."""

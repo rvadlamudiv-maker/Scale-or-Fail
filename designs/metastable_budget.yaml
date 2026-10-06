@@ -1,0 +1,26 @@
+# Client -> LB -> App (4 instances) -> DB
+# Each app request makes 1.5 DB calls on average.
+# The LB gives up on an app call after 1 s and retries it up to 3 times.
+# Same, but retries are capped at 10% of first attempts (retry budget).
+components:
+  - id: client
+    type: client
+  - id: lb
+    type: load_balancer
+  - id: app
+    type: app_server
+    instances: 4
+  - id: db
+    type: database
+edges:
+  - source: client
+    target: lb
+  - source: lb
+    target: app
+    caller_timeout_ms: 1000
+    retries: 3
+    retry_delay_ms: 200
+    retry_budget: 0.1
+  - source: app
+    target: db
+    calls_per_request: 1.5
