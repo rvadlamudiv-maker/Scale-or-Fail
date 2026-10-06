@@ -86,7 +86,7 @@ def _notes(result: SimulationResult, node_id: str, s) -> str:
         return f"hit ratio {s.avg_hit_ratio:.0%}"
     if kind is ComponentType.REPLICA:
         lag = s.peak_replication_lag_ms
-        return f"[{_style_for_lag(lag)}]lag up to {_fmt(lag)} ms[/]"
+        return f"[{_style_for_lag(lag)}]lag up to {_fmt(lag)} ms, {s.stale_read_rate:.0%} stale reads[/]"
     return ""
 
 

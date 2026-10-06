@@ -49,6 +49,11 @@ where H_N = 1 + 1/2 + ... + 1/N, so the more you fan out, the more the tail hurt
 Gray failures: some instances get slow but still pass health checks. With
 round-robin balancing they keep getting an equal share of traffic and drown;
 least-outstanding balancing notices they are slow and sends them less.
+
+Correctness: a replica further behind than the scenario's staleness tolerance T
+serves stale data. With lag L > T, a share 1 - T/L of its reads count as stale
+(the further behind, the more reads it gets wrong). Freshness is tracked
+end to end like availability: a request is fresh only if every read it made was.
 """
 
 from __future__ import annotations
@@ -84,9 +89,17 @@ class NodeTick:
     wasted_rps: float = 0.0  # served, but the caller had already given up (wasted work)
     replication_rps: float = 0.0  # replicas only: writes replayed from the primary
     replication_lag_ms: float = 0.0  # replicas only: how far behind the primary it is
+    stale_rps: float = 0.0  # replicas only: reads answered with data older than the tolerance
     instances: int = 0  # instances serving traffic this tick
     booting_instances: int = 0  # instances launched but still warming up
     cost_per_hour: float = 0.0  # (serving + booting instances) * price per instance
+
+
+def reads_served_rps(tick: NodeTick) -> float:
+    """Real requests a node answered, leaving out writes a replica replayed from its primary."""
+    if tick.inbound_rps <= 0:
+        return 0.0
+    return tick.served_rps * (1 - tick.replication_rps / tick.inbound_rps)
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +110,7 @@ class TickSnapshot:
     cost_per_hour: float = 0.0  # what the whole design costs to run right now
     success_ratio: float = 1.0  # chance a user request succeeds end to end
     events: tuple[str, ...] = ()  # chaos events that started or ended this tick
+    fresh_ratio: float = 1.0  # chance a user request saw only fresh data
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +128,7 @@ class NodeSummary:
     wasted_rate: float  # work done for callers that had already given up, vs. calls attempted
     avg_hit_ratio: float  # caches only
     peak_replication_lag_ms: float  # replicas only
+    stale_read_rate: float  # replicas only: stale reads / reads served
     avg_instances: float
     peak_instances: int
     avg_cost_per_hour: float
@@ -150,12 +165,26 @@ class SimulationResult:
         return sum(s.success_ratio * w for s, w in zip(self.snapshots, weights)) / total
 
     @property
+    def freshness(self) -> float:
+        """Share of user requests that saw only fresh data, weighted by traffic per tick."""
+        weights = [s.nodes[self.client_id].inbound_rps for s in self.snapshots]
+        total = sum(weights)
+        if total == 0:
+            return 1.0
+        return sum(s.fresh_ratio * w for s, w in zip(self.snapshots, weights)) / total
+
+    @property
     def avg_cost_per_hour(self) -> float:
         return sum(s.cost_per_hour for s in self.snapshots) / len(self.snapshots)
 
     @property
     def peak_cost_per_hour(self) -> float:
         return max(s.cost_per_hour for s in self.snapshots)
+
+    @staticmethod
+    def _stale_read_rate(ticks) -> float:
+        reads = sum(reads_served_rps(t) for t in ticks)
+        return sum(t.stale_rps for t in ticks) / reads if reads > 0 else 0.0
 
     def summary(self) -> dict[str, NodeSummary]:
         dt = 1.0 / self.scenario.tick_hz
@@ -183,6 +212,7 @@ class SimulationResult:
                 wasted_rate=wasted / (inbound + pool_rejected) if inbound + pool_rejected else 0.0,
                 avg_hit_ratio=sum(t.hit_ratio for t in ticks) / n,
                 peak_replication_lag_ms=max(t.replication_lag_ms for t in ticks),
+                stale_read_rate=self._stale_read_rate(ticks),
                 avg_instances=sum(t.instances for t in ticks) / n,
                 peak_instances=max(t.instances for t in ticks),
                 avg_cost_per_hour=sum(t.cost_per_hour for t in ticks) / n,
@@ -288,8 +318,13 @@ class Simulator:
             wasted_rps = sum(rate for _, _, rate in late_calls)
             booting = sum(count for _, count in self._booting[node_id])
             replication_lag_ms = 0.0
-            if component.type is ComponentType.REPLICA:
+            stale_rps = 0.0
+            if component.type is ComponentType.REPLICA and capacity_rps > 0:
                 replication_lag_ms = BASE_REPLICATION_LAG_MS + queue / capacity_rps * 1000
+                tolerance_ms = self.scenario.goals.staleness_tolerance_ms
+                if replication_lag_ms > tolerance_ms and demand_rps > 0:
+                    reads_served = served_rps * (1 - replication_rps / demand_rps)
+                    stale_rps = reads_served * (1 - tolerance_ms / replication_lag_ms)
             nodes[node_id] = NodeTick(
                 inbound_rps=demand_rps,
                 retry_rps=retry_in[node_id],
@@ -304,6 +339,7 @@ class Simulator:
                 wasted_rps=wasted_rps,
                 replication_rps=replication_rps,
                 replication_lag_ms=replication_lag_ms,
+                stale_rps=stale_rps,
                 instances=self._instances[node_id],
                 booting_instances=booting,
                 cost_per_hour=(self._instances[node_id] + booting) * component.hourly_price,
@@ -324,8 +360,27 @@ class Simulator:
             end_to_end_ms=self._end_to_end_ms(nodes),
             cost_per_hour=sum(n.cost_per_hour for n in nodes.values()),
             success_ratio=self._success_ratio(nodes),
+            fresh_ratio=self._fresh_ratio(nodes),
             events=tuple(event_labels),
         )
+
+    def _fresh_ratio(self, nodes: dict[str, NodeTick]) -> float:
+        """Like _success_ratio, but for stale data: a request is fresh only if every read was.
+        Retries don't help here: a retried read can be just as stale."""
+        fresh: dict[str, float] = {}
+        for node_id in reversed(self._order):
+            n = nodes[node_id]
+            reads = reads_served_rps(n)
+            own = 1 - min(1.0, n.stale_rps / reads) if reads > 0 else 1.0
+            edges = self.graph.downstream(node_id)
+            if self.graph.component(node_id).type is ComponentType.LOAD_BALANCER:
+                weight_sum = sum(e.weight for e in edges)
+                downstream = sum(e.weight / weight_sum * fresh[e.target] for e in edges)
+            else:
+                downstream = math.prod(fresh[e.target] ** e.calls_per_request for e in edges)
+                downstream = n.hit_ratio + (1 - n.hit_ratio) * downstream
+            fresh[node_id] = own * downstream
+        return fresh[self.graph.client_id]
 
     def _success_ratio(self, nodes: dict[str, NodeTick]) -> float:
         """Bottom-up, like end-to-end latency: a node's success = its own success rate

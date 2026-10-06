@@ -65,6 +65,10 @@ class Goals(BaseModel):
     availability: float = Field(default=0.999, gt=0, le=1, description="Share of requests that must succeed.")
     p99_ms: float = Field(default=500, gt=0, description="End-to-end p99 latency target.")
     budget_per_hour: float = Field(default=1500, gt=0, description="Average spend target ($/hour).")
+    freshness: float = Field(default=0.999, gt=0, le=1, description="Share of requests that must see fresh data.")
+    staleness_tolerance_ms: float = Field(
+        default=100, gt=0, description="Replica data older than this counts as stale."
+    )
 
 
 class Scenario(BaseModel):
