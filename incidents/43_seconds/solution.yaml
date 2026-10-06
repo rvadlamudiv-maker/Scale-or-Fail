@@ -1,0 +1,26 @@
+# 43 Seconds - a design that survives.
+# The real follow-up: failover automation may only promote a primary within the same region.
+# A partition that only cuts off the automation then does no harm - the apps never lost the database.
+components:
+  - id: client
+    type: client
+  - id: lb
+    type: load_balancer
+  - id: app
+    type: app_server
+    instances: 20
+    timeout_ms: 500
+  - id: db
+    type: database
+    instances: 3
+    failover: within_region
+    failover_after_s: 10
+    cross_region_rtt_ms: 60
+edges:
+  - source: client
+    target: lb
+  - source: lb
+    target: app
+  - source: app
+    target: db
+    calls_per_request: 3

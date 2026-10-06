@@ -91,6 +91,13 @@ class Component(BaseModel):
     cpu_guard: bool = Field(
         default=False, description="A per-request CPU limit: a runaway request can't hog a whole server."
     )
+    # Databases: where automatic failover may promote a new primary when this one looks unreachable.
+    failover: Literal["within_region", "cross_region"] = Field(
+        default="within_region",
+        description="cross_region lets automation promote a primary in another region during a network partition.",
+    )
+    failover_after_s: float = Field(default=10, gt=0, description="How long the primary must look unreachable.")
+    cross_region_rtt_ms: float = Field(default=60, gt=0, description="Extra round trip per call to the other region.")
     balancing: Literal["round_robin", "least_outstanding"] = Field(
         default="round_robin",
         description="How traffic is spread over this component's instances. least_outstanding sends "

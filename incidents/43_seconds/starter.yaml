@@ -1,0 +1,26 @@
+# 43 Seconds - starting design.
+# The app makes 3 database calls per request and needs them to be fast.
+# The failover automation may promote a new primary in another region after 10 s of silence.
+components:
+  - id: client
+    type: client
+  - id: lb
+    type: load_balancer
+  - id: app
+    type: app_server
+    instances: 20
+    timeout_ms: 500
+  - id: db
+    type: database
+    instances: 3
+    failover: cross_region
+    failover_after_s: 10
+    cross_region_rtt_ms: 60
+edges:
+  - source: client
+    target: lb
+  - source: lb
+    target: app
+  - source: app
+    target: db
+    calls_per_request: 3

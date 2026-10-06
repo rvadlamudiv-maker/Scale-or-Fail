@@ -70,3 +70,21 @@ def test_a_canary_limits_the_blast_radius_of_a_bad_deploy():
     # Global: almost every request fails until the rollback. Canary: only the canary's share does.
     assert min(s.success_ratio for s in global_rollout.snapshots) < 0.1
     assert min(s.success_ratio for s in canary.snapshots) > 0.85
+
+
+def test_you_cannot_buy_your_way_out_of_a_split_brain():
+    import yaml
+
+    from engine.models import SystemGraph
+    from engine.scoring import score as score_run
+
+    folder = Path(__file__).resolve().parent.parent / "incidents" / "43_seconds"
+    scenario = load_scenario(folder / "scenario.yaml")
+    brute_force = yaml.safe_load(open(folder / "starter.yaml"))
+    next(c for c in brute_force["components"] if c["id"] == "app")["instances"] = 200
+    result = Simulator(SystemGraph.model_validate(brute_force), scenario).run()
+    # 10x the app servers absorbs the cross-country latency, but the diverged writes remain.
+    assert result.availability > 0.999
+    assert result.diverged_writes > 0
+    assert score_run(result).grade in "DF"
+    assert run(folder, "solution").diverged_writes == 0

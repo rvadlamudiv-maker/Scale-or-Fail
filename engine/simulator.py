@@ -58,6 +58,12 @@ end to end like availability: a request is fresh only if every read it made was.
 Bad deploys: a global rollout slows every instance until someone rolls it back;
 a canary rollout only hits a few instances and is rolled back automatically.
 A CPU guard caps how much one runaway request can slow an instance down.
+
+Network partitions and failover: if a database looks unreachable to its failover
+automation for long enough, a cross-region policy promotes a new primary far away.
+Every write the old primary took during the partition was never replicated (it
+needs manual reconciliation), and every caller now pays a cross-region round trip
+on each database call - for good, because failing back isn't safe.
 """
 
 from __future__ import annotations
@@ -98,6 +104,7 @@ class NodeTick:
     replication_lag_ms: float = 0.0  # replicas only: how far behind the primary it is
     stale_rps: float = 0.0  # replicas only: reads answered with data older than the tolerance
     instances: int = 0  # instances serving traffic this tick
+    diverged_writes: float = 0.0  # databases: writes only the old primary has (need reconciliation)
     booting_instances: int = 0  # instances launched but still warming up
     cost_per_hour: float = 0.0  # (serving + booting instances) * price per instance
 
@@ -181,6 +188,11 @@ class SimulationResult:
         return sum(s.fresh_ratio * w for s, w in zip(self.snapshots, weights)) / total
 
     @property
+    def diverged_writes(self) -> float:
+        """Writes that ended up on only one side of a failover, by the end of the run."""
+        return sum(n.diverged_writes for n in self.snapshots[-1].nodes.values())
+
+    @property
     def avg_cost_per_hour(self) -> float:
         return sum(s.cost_per_hour for s in self.snapshots) / len(self.snapshots)
 
@@ -258,6 +270,11 @@ class Simulator:
         # Gray failures: (how many instances, how many times slower), and their own backlog.
         self._gray: dict[str, tuple[int, float]] = {n: (0, 1.0) for n in self._order}
         self._gray_queues: dict[str, float] = {n: 0.0 for n in self._order}
+        # Partitions: when each started, writes taken since, whether failover happened.
+        self._partitioned_since: dict[str, int | None] = {n: None for n in self._order}
+        self._partition_writes: dict[str, float] = {n: 0.0 for n in self._order}
+        self._failed_over: dict[str, bool] = {n: False for n in self._order}
+        self._diverged: dict[str, float] = {n: 0.0 for n in self._order}
         # Events aimed at a component this design doesn't have (e.g. flushing a cache in a
         # design without one) simply don't happen; the rest must make sense.
         self._events = [e for e in scenario.events if e.target in self._instances]
@@ -348,6 +365,7 @@ class Simulator:
                 replication_lag_ms=replication_lag_ms,
                 stale_rps=stale_rps,
                 instances=self._instances[node_id],
+                diverged_writes=self._diverged[node_id],
                 booting_instances=booting,
                 # You keep paying for the fleet you provisioned: instances that die are replaced
                 # (or still billed), so the bill never drops below the configured `instances`.
@@ -355,6 +373,8 @@ class Simulator:
             )
             if component.max_instances is not None:
                 self._autoscale(node_id, component, demand_rps)
+            if self._partitioned_since[node_id] is not None:
+                self._partition_writes[node_id] += served_rps * self.dt
             self._schedule_retries(arrivals[node_id], failed_rps, demand_rps)
             if wasted_rps > 0:
                 self._schedule_retries(late_calls, wasted_rps, wasted_rps)  # the caller saw these fail
@@ -499,6 +519,11 @@ class Simulator:
                 labels.append(self._start_deploy(event))
             elif self._tick == end and event.kind == "bad_deploy":
                 labels.append(self._end_deploy(event))
+            elif self._tick == start and event.kind == "network_partition":
+                self._partitioned_since[event.target] = self._tick
+                labels.append(event.label())
+            elif self._tick == end and event.kind == "network_partition":
+                labels.append(self._heal_partition(event.target))
             elif self._tick == start:
                 labels.append(event.label())
                 if event.kind == "kill_instances":
@@ -520,7 +545,41 @@ class Simulator:
                     # Requests still waiting on the (now healthy again) instances join the main queue.
                     self._queues[event.target] += self._gray_queues[event.target]
                     self._gray_queues[event.target] = 0.0
+        labels += self._check_failovers()
         return labels
+
+    def _check_failovers(self) -> list[str]:
+        """Cross-region failover kicks in once a primary has looked unreachable for long enough."""
+        labels = []
+        for node_id, since in self._partitioned_since.items():
+            component = self.graph.component(node_id)
+            if since is None or self._failed_over[node_id] or component.failover != "cross_region":
+                continue
+            if (self._tick - since) * self.dt >= component.failover_after_s:
+                self._failed_over[node_id] = True
+                # Every caller now crosses the country on each call to this database.
+                for edge in self.graph.edges:
+                    if edge.target == node_id:
+                        extra_ms = edge.calls_per_request * component.cross_region_rtt_ms
+                        self._slowdown[edge.source] *= 1 + extra_ms / self.graph.component(edge.source).service_time_ms
+                labels.append(
+                    f"failover: {node_id} primary promoted in another region "
+                    f"(+{component.cross_region_rtt_ms:g} ms on every call)"
+                )
+        return labels
+
+    def _heal_partition(self, node_id: str) -> str:
+        since = self._partitioned_since[node_id]
+        seconds = (self._tick - since) * self.dt if since is not None else 0
+        self._partitioned_since[node_id] = None
+        writes, self._partition_writes[node_id] = self._partition_writes[node_id], 0.0
+        if not self._failed_over[node_id]:
+            return f"partition healed after {seconds:g}s: nothing failed over, no harm done"
+        self._diverged[node_id] += writes
+        return (
+            f"partition healed after {seconds:g}s, but {node_id} already failed over: "
+            f"{writes:,.0f} writes exist only on the old primary, so failing back isn't safe"
+        )
 
     def _end_tick(self, event) -> int | None:
         hz = self.scenario.tick_hz

@@ -1,0 +1,35 @@
+name: 43 Seconds
+description: A 43-second network blip during routine maintenance - and failover automation turns it into a day-long problem.
+duration_s: 120
+tick_hz: 10
+seed: 42
+traffic:
+  base_rps: 4000
+  noise: 0.05
+goals:
+  availability: 0.999
+  p99_ms: 500
+  budget_per_hour: 3500
+events:
+  # Replacing network equipment cuts the database's data center off from the failover
+  # automation for 43 seconds. The apps next to the database can still reach it.
+  - at_s: 10
+    kind: network_partition
+    target: db
+    duration_s: 43
+incident:
+  title: GitHub service degradation
+  date: "2018-10-21"
+  postmortem_url: https://github.blog/news-insights/company-news/oct21-post-incident-analysis/
+  summary: >-
+    Routine maintenance on network equipment cut GitHub's main East Coast data center off from
+    the rest of its network for 43 seconds. GitHub's database failover automation saw the primaries
+    as unreachable and promoted new ones on the West Coast. When the network came back, the East
+    Coast databases held writes the West Coast never received, so failing back wasn't safe, and the
+    East Coast apps now paid a cross-country round trip on their database calls. GitHub chose data
+    integrity over speed of recovery, and the service was degraded for just over 24 hours.
+  real_fixes:
+    - Kept the new West Coast primaries rather than risk losing writes, prioritizing data integrity over availability.
+    - Restored East Coast databases from backups, let replication catch up, failed back, then worked through the backlog of webhooks and Pages builds.
+    - Reconfigured the failover automation so it can no longer promote database primaries across regions.
+    - Reconciled the few seconds of unreplicated writes, and invested in serving from multiple data centers and in chaos engineering.

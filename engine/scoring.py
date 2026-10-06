@@ -4,6 +4,7 @@ Every run starts at 10,000 points:
   - availability below target costs 1,200 points per percentage point (max 6,000)
   - p99 latency above target costs 400 points per doubling (max 3,000)
   - stale data below the freshness target costs 600 points per percentage point (max 3,000)
+  - writes that need manual reconciliation after a failover cost 1 point per 10 writes (max 3,000)
   - spending under budget earns up to 1,000 points; over budget costs up to 3,000
 """
 
@@ -52,6 +53,10 @@ def correctness_points(freshness: float, target: float) -> int:
     return -min(3000, round(shortfall_points * 600))
 
 
+def integrity_points(diverged_writes: float) -> int:
+    return -min(3000, round(diverged_writes / 10))
+
+
 def cost_points(cost_per_hour: float, budget: float) -> int:
     if cost_per_hour <= budget:
         return round(1000 * (budget - cost_per_hour) / budget)
@@ -79,6 +84,11 @@ def score(result: SimulationResult) -> ScoreCard:
             "Correctness",
             f"{result.freshness:.2%} fresh vs {goals.freshness:.1%} target",
             correctness_points(result.freshness, goals.freshness),
+        ),
+        ScoreLine(
+            "Data integrity",
+            f"{result.diverged_writes:,.0f} writes need manual reconciliation",
+            integrity_points(result.diverged_writes),
         ),
         ScoreLine(
             "Cost",
