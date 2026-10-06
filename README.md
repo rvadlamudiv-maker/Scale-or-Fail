@@ -4,7 +4,7 @@
 
 Players design an architecture, then replay scenarios inspired by real, publicly documented outages. Failures emerge from the simulation instead of being scripted, and every run ends with a score: availability, latency, correctness, and cost.
 
-> Status: engine complete for the MVP - queueing, retries, caches, pools, replicas, autoscaling, chaos, metastable failures, tail amplification, gray failures, correctness. 243 tests.
+> Status: engine and all 5 scenarios complete - 4 inspired by real public postmortems, plus Black Friday. 257 tests.
 
 ## Quickstart
 
@@ -45,7 +45,9 @@ pytest -q
 | Balancing | `round_robin` gives every instance the same share; `least_outstanding` sends slow instances less (outlier detection) |
 | Cost | `max(serving + booting, configured instances) × price per hour`: booting instances are billed, dead ones don't lower the bill |
 | Availability / freshness | Bottom-up probabilities: a request succeeds (is fresh) only if every call it makes does; retries rescue failures `1 − fail^(1 + retries)` but not stale reads |
-| Chaos events | `kill_instances`, `cache_flush`, `slow_down`, `gray_failure` (slow but still passing health checks) |
+| Chaos events | `kill_instances`, `cache_flush`, `slow_down`, `gray_failure` (slow but still passing health checks), `bad_deploy`, `network_partition` |
+| Deploys | `rollout: global` slows every instance until a human rollback; `rollout: canary` hits `canary_instances` and rolls back automatically after `canary_bake_s`; `cpu_guard` caps any slowdown at 1.5× |
+| Failover | A partitioned database with `failover: cross_region` gets a new primary far away after `failover_after_s`: callers pay `cross_region_rtt_ms` per call for good, and writes taken during the partition diverge |
 
 `tests/test_queueing_theory.py` checks the engine against queueing theory: no queue below capacity, linear queue growth when overloaded, drain time = backlog / (capacity − arrivals), the M/M/1 curve, and Little's Law.
 
@@ -58,6 +60,7 @@ Every run starts at **10,000** points:
 | Availability below target | −1,200 per percentage point (max −6,000) |
 | p99 above target | −400 per doubling (max −3,000) |
 | Freshness below target | −600 per percentage point (max −3,000) |
+| Diverged writes after a failover | −1 per 10 writes (max −3,000) |
 | Cost | up to +1,000 under budget, up to −3,000 over |
 
 Grades: **S** ≥ 10,000 · **A** ≥ 9,000 · **B** ≥ 7,500 · **C** ≥ 6,000 · **D** ≥ 4,000 · **F** below.
@@ -102,12 +105,28 @@ The winning move is rarely "add everything." On the URL Shortener scenario, `sol
 | `solid`, `solid_autoscaled` | Round robin keeps feeding the sick server: ~9% of requests fail for 30 s, and the autoscaler sees nothing wrong (D) |
 | `solid_outlier` | `least_outstanding` balancing sends the slow server less: 100% availability, p99 44 ms (S) |
 
+## Real-outage scenarios
+
+Each folder in `incidents/` has a `scenario.yaml` (with the real story, sources and what the engineers actually did), a `starter.yaml` that fails, and a `solution.yaml` that survives. Scenarios are simplified recreations based on public postmortems.
+
+```bash
+python -m engine.cli run incidents/retry_storm/scenario.yaml incidents/retry_storm/starter.yaml
+```
+
+| Scenario | Inspired by | Starter | What fixes it |
+|---|---|---|---|
+| **The Retry Storm** | AWS us-east-1, Dec 2021 | A 10 s surge becomes an outage that never ends (F) | Retry budget + backoff + load shedding, and headroom (S) |
+| **Monday After the Holidays** | Slack, Jan 2021 | The network hub autoscales 45 s too late (F) | Pre-scale before the first day back (S); faster autoscaling alone still leaves a gap (B) |
+| **The Bad Regex** | Cloudflare, Jul 2019 | A global deploy leaves 8% of requests working for 25 s (F) | Canary rollouts + a CPU guard (S) |
+| **43 Seconds** | GitHub, Oct 2018 | Cross-region failover: half of requests fail for good, 317,867 diverged writes (F) | Failover only within a region (S); 10× the servers still can't fix the split brain (D) |
+| **Black Friday** | No single incident | A design sized for a normal Tuesday (D) | Pre-scale to 15 web servers + cache the reads: the cheapest S. 30 servers scores lower (A) |
+
 ## Known limitations
 
 - Traffic is modeled as rates, not individual requests, so jitter shows its effect on *timing* but not on the collisions between thousands of separate clients that it prevents in real systems.
 - End-to-end latency is a mean per tick; p99 is taken across ticks, so tails inside a single tick are approximated (fan-out uses the exponential slowest-of-N formula).
 - Calls to a database primary are treated as writes; reads are routed to replicas explicitly.
-- Database failover (and the lost writes it can cause) is not modeled yet.
+- Failover is modeled for one database primary; multi-primary and quorum databases are not.
 
 ## Roadmap
 
@@ -116,7 +135,8 @@ The winning move is rarely "add everything." On the URL Shortener scenario, `sol
 - [x] Day 3 - retries, backoff, jitter, retry budgets, caches, connection pools, read replicas
 - [x] Day 4 - autoscaling, cost, availability, scoring, chaos events
 - [x] Week 2 - metastable failures, tail amplification, gray failures, correctness, billing fix
-- [ ] Incident scenarios inspired by real public postmortems + Daily Outage
+- [x] Real-outage scenarios: Retry Storm, Monday After the Holidays, Bad Regex, 43 Seconds, Black Friday
+- [ ] Daily Outage (date-seeded daily challenge + share card)
 - [ ] Browser game (React Flow + Pyodide)
 
 *Not affiliated with any company referenced in scenarios.*
