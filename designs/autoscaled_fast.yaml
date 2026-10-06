@@ -1,0 +1,26 @@
+# Client -> LB -> App (4-12 instances, autoscaled) -> DB
+# Each app request makes 1.5 DB calls on average.
+# App requests give up after waiting 500 ms in the queue.
+# New app instances take 5 s to boot (a warm container pool).
+components:
+  - id: client
+    type: client
+  - id: lb
+    type: load_balancer
+  - id: app
+    type: app_server
+    instances: 4
+    max_instances: 12
+    target_utilization: 0.7
+    warmup_s: 5
+    timeout_ms: 500
+  - id: db
+    type: database
+edges:
+  - source: client
+    target: lb
+  - source: lb
+    target: app
+  - source: app
+    target: db
+    calls_per_request: 1.5

@@ -64,6 +64,17 @@ class Component(BaseModel):
     cold_start: bool = Field(default=False, description="Start with an empty cache.")
     # Replica settings (only used when type is "replica").
     replica_of: str | None = Field(default=None, description="The database this replica copies.")
+    # Autoscaling: on when max_instances is set. `instances` is the starting (and minimum) count.
+    max_instances: int | None = Field(default=None, ge=1, description="Autoscaling ceiling. None = fixed size.")
+    target_utilization: float = Field(default=0.7, gt=0, le=1, description="Scale out to keep load near this.")
+    warmup_s: float = Field(default=30, ge=0, description="Seconds before a new instance can serve traffic.")
+    scale_in_after_s: float = Field(default=60, ge=0, description="Low load must last this long before scaling in.")
+
+    @model_validator(mode="after")
+    def _check_autoscaling(self) -> Component:
+        if self.max_instances is not None and self.max_instances < self.instances:
+            raise ValueError(f"{self.id!r}: max_instances must be >= instances")
+        return self
 
     @property
     def total_capacity_rps(self) -> float:

@@ -25,6 +25,9 @@ second, so when the target slows down, the pool runs dry and calls are rejected.
 Read replicas take read traffic off a database, but every replica must also
 replay every write the primary accepts. When a replica falls behind, its
 replication lag grows and the reads it serves are stale.
+
+Autoscaling adds instances when load runs above a target utilization, but a new
+instance only starts serving after its warm-up time, so it can arrive late.
 """
 
 from __future__ import annotations
@@ -35,7 +38,7 @@ from collections import defaultdict
 from collections.abc import Iterator
 from dataclasses import dataclass
 
-from engine.models import ComponentType, Edge, SystemGraph
+from engine.models import DEFAULT_QUEUE_SECONDS, ComponentType, Edge, SystemGraph
 from engine.scenario import Scenario
 
 # Utilization is capped below 1.0 so the M/M/1 curve stays finite at saturation.
@@ -59,6 +62,8 @@ class NodeTick:
     pool_rejected_rps: float = 0.0  # calls that never got a connection to this node
     replication_rps: float = 0.0  # replicas only: writes replayed from the primary
     replication_lag_ms: float = 0.0  # replicas only: how far behind the primary it is
+    instances: int = 0  # instances serving traffic this tick
+    booting_instances: int = 0  # instances launched but still warming up
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +87,8 @@ class NodeSummary:
     pool_reject_rate: float  # calls rejected for lack of a connection, vs. calls attempted
     avg_hit_ratio: float  # caches only
     peak_replication_lag_ms: float  # replicas only
+    avg_instances: float
+    peak_instances: int
     overloaded_s: float
 
 
@@ -129,6 +136,8 @@ class SimulationResult:
                 pool_reject_rate=pool_rejected / (inbound + pool_rejected) if inbound + pool_rejected else 0.0,
                 avg_hit_ratio=sum(t.hit_ratio for t in ticks) / n,
                 peak_replication_lag_ms=max(t.replication_lag_ms for t in ticks),
+                avg_instances=sum(t.instances for t in ticks) / n,
+                peak_instances=max(t.instances for t in ticks),
                 overloaded_s=sum(dt for t in ticks if t.load > 1.0),
             )
         return out
@@ -154,6 +163,11 @@ class Simulator:
         self._pending_retries: defaultdict[int, list[Arrival]] = defaultdict(list)
         # Current hit ratio of every cache.
         self._hit_ratios: dict[str, float] = {}
+        # Autoscaling state: instances serving now, instances booting (ready_tick, count),
+        # and since when load has been low enough to scale in.
+        self._instances: dict[str, int] = {n: graph.component(n).instances for n in self._order}
+        self._booting: defaultdict[str, list[tuple[int, int]]] = defaultdict(list)
+        self._low_load_since: dict[str, int | None] = {n: None for n in self._order}
         self._tick = 0
 
     @property
@@ -178,14 +192,15 @@ class Simulator:
         nodes: dict[str, NodeTick] = {}
         for node_id in self._order:
             component = self.graph.component(node_id)
+            self._finish_booting(node_id)
             pool_rejected_rps = self._apply_connection_pools(node_id, arrivals[node_id], inbound)
             replication_rps = 0.0
             if component.type is ComponentType.REPLICA:
                 # Every replica instance replays every write the primary accepted this tick.
-                replication_rps = nodes[component.replica_of].served_rps * component.instances
+                replication_rps = nodes[component.replica_of].served_rps * self._instances[node_id]
                 inbound[node_id] += replication_rps
             demand_rps = inbound[node_id]
-            capacity_rps = component.total_capacity_rps
+            capacity_rps = self._capacity_rps(node_id)
 
             if math.isinf(capacity_rps):
                 # The client has no limit: everything it sends goes out this tick.
@@ -203,10 +218,10 @@ class Simulator:
                     timed_out = max(0.0, queue - max_waiting)
                     queue -= timed_out
                 # Whatever still doesn't fit in the queue is rejected.
-                dropped = max(0.0, queue - component.queue_limit)
+                dropped = max(0.0, queue - self._queue_limit(component, capacity_rps))
                 queue -= dropped
                 load = demand_rps / capacity_rps
-                latency_ms = self._latency_ms(component, served / self.dt, queue)
+                latency_ms = self._latency_ms(component, capacity_rps, served / self.dt, queue)
 
             self._queues[node_id] = queue
             served_rps = served / self.dt
@@ -230,7 +245,11 @@ class Simulator:
                 pool_rejected_rps=pool_rejected_rps,
                 replication_rps=replication_rps,
                 replication_lag_ms=replication_lag_ms,
+                instances=self._instances[node_id],
+                booting_instances=sum(count for _, count in self._booting[node_id]),
             )
+            if component.max_instances is not None:
+                self._autoscale(node_id, component, demand_rps)
             self._schedule_retries(arrivals[node_id], failed_rps, demand_rps)
             # Only real requests go downstream: not cache hits, not replicated writes.
             read_share = 1 - replication_rps / demand_rps if demand_rps else 1.0
@@ -238,6 +257,51 @@ class Simulator:
 
         self._tick += 1
         return TickSnapshot(t=t, nodes=nodes, end_to_end_ms=self._end_to_end_ms(nodes))
+
+    def _capacity_rps(self, node_id: str) -> float:
+        component = self.graph.component(node_id)
+        per_instance = component.total_capacity_rps / component.instances
+        return per_instance * self._instances[node_id]
+
+    @staticmethod
+    def _queue_limit(component, capacity_rps: float) -> float:
+        if component.max_queue is not None:
+            return component.max_queue
+        return capacity_rps * DEFAULT_QUEUE_SECONDS
+
+    def _finish_booting(self, node_id: str) -> None:
+        """Instances whose warm-up is over start serving."""
+        still_booting = []
+        for ready_tick, count in self._booting[node_id]:
+            if ready_tick <= self._tick:
+                self._instances[node_id] += count
+            else:
+                still_booting.append((ready_tick, count))
+        self._booting[node_id] = still_booting
+
+    def _autoscale(self, node_id: str, component, demand_rps: float) -> None:
+        """Target tracking: aim for enough instances to run at target_utilization."""
+        per_instance = component.total_capacity_rps / component.instances
+        wanted = math.ceil(demand_rps / (per_instance * component.target_utilization))
+        wanted = max(component.instances, min(component.max_instances, wanted))
+        serving = self._instances[node_id]
+        booting = sum(count for _, count in self._booting[node_id])
+
+        if wanted > serving + booting:
+            # Scale out now, but the new instances only help after warming up.
+            ready_tick = self._tick + max(1, round(component.warmup_s / self.dt))
+            self._booting[node_id].append((ready_tick, wanted - serving - booting))
+            self._low_load_since[node_id] = None
+        elif wanted < serving and not booting:
+            # Scale in only after load has stayed low for scale_in_after_s.
+            since = self._low_load_since[node_id]
+            if since is None:
+                self._low_load_since[node_id] = self._tick
+            elif (self._tick - since) * self.dt >= component.scale_in_after_s:
+                self._instances[node_id] = wanted
+                self._low_load_since[node_id] = None
+        else:
+            self._low_load_since[node_id] = None
 
     def _apply_connection_pools(self, node_id: str, arrivals: list[Arrival], inbound) -> float:
         """Cap each pooled edge into this node at the rate its connections can carry.
@@ -256,7 +320,7 @@ class Simulator:
             if edge.pool_size is None or per_edge[id(edge)] == 0:
                 kept.append((edge, attempt, rate))
                 continue
-            max_rps = self._pool_limit_rps(component, edge.pool_size, self._queues[node_id])
+            max_rps = self._pool_limit_rps(component, self._capacity_rps(node_id), edge.pool_size, self._queues[node_id])
             allowed = min(1.0, max_rps / per_edge[id(edge)])
             kept.append((edge, attempt, rate * allowed))
             if allowed < 1.0:
@@ -270,13 +334,12 @@ class Simulator:
         return rejected_rps
 
     @staticmethod
-    def _pool_limit_rps(component, pool_size: int, queue: float) -> float:
+    def _pool_limit_rps(component, capacity_rps: float, pool_size: int, queue: float) -> float:
         """The highest call rate whose in-flight calls fit in the pool.
 
         Little's Law: in-flight calls = rate * latency. Latency itself rises with the rate
         (M/M/1) and with any backlog, so search for the rate where rate * latency = pool_size.
         """
-        capacity_rps = component.total_capacity_rps
 
         def in_flight(rate: float) -> float:
             rho = min(rate / capacity_rps, MAX_UTILIZATION)
@@ -361,8 +424,7 @@ class Simulator:
         return total[self.graph.client_id]
 
     @staticmethod
-    def _latency_ms(component, served_rps: float, queue: float) -> float:
-        capacity_rps = component.total_capacity_rps
+    def _latency_ms(component, capacity_rps: float, served_rps: float, queue: float) -> float:
         # M/M/1: as a server gets busier, each request waits longer: S / (1 - rho).
         rho = min(served_rps / capacity_rps, MAX_UTILIZATION)
         processing_s = (component.service_time_ms / 1000) / (1 - rho)
