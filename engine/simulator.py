@@ -21,6 +21,10 @@ follows a TTL-cache model and warms up gradually after a cold start.
 Connection pools limit how many calls can be in flight on an edge at once. By
 Little's Law a pool of N connections carries at most N / latency calls per
 second, so when the target slows down, the pool runs dry and calls are rejected.
+
+Read replicas take read traffic off a database, but every replica must also
+replay every write the primary accepts. When a replica falls behind, its
+replication lag grows and the reads it serves are stale.
 """
 
 from __future__ import annotations
@@ -37,6 +41,9 @@ from engine.scenario import Scenario
 # Utilization is capped below 1.0 so the M/M/1 curve stays finite at saturation.
 MAX_UTILIZATION = 0.95
 
+# How far behind a healthy replica runs (network + apply time), in milliseconds.
+BASE_REPLICATION_LAG_MS = 10
+
 
 @dataclass(frozen=True, slots=True)
 class NodeTick:
@@ -50,6 +57,8 @@ class NodeTick:
     load: float  # demand / capacity; > 1.0 means overloaded
     hit_ratio: float = 0.0  # caches only: share of requests served from the cache
     pool_rejected_rps: float = 0.0  # calls that never got a connection to this node
+    replication_rps: float = 0.0  # replicas only: writes replayed from the primary
+    replication_lag_ms: float = 0.0  # replicas only: how far behind the primary it is
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +171,11 @@ class Simulator:
         for node_id in self._order:
             component = self.graph.component(node_id)
             pool_rejected_rps = self._apply_connection_pools(node_id, arrivals[node_id], inbound)
+            replication_rps = 0.0
+            if component.type is ComponentType.REPLICA:
+                # Every replica instance replays every write the primary accepted this tick.
+                replication_rps = nodes[component.replica_of].served_rps * component.instances
+                inbound[node_id] += replication_rps
             demand_rps = inbound[node_id]
             capacity_rps = component.total_capacity_rps
 
@@ -192,6 +206,9 @@ class Simulator:
             hit_ratio = 0.0
             if component.type is ComponentType.CACHE:
                 hit_ratio = self._update_hit_ratio(node_id, component, demand_rps)
+            replication_lag_ms = 0.0
+            if component.type is ComponentType.REPLICA:
+                replication_lag_ms = BASE_REPLICATION_LAG_MS + queue / capacity_rps * 1000
             nodes[node_id] = NodeTick(
                 inbound_rps=demand_rps,
                 retry_rps=retry_in[node_id],
@@ -203,9 +220,13 @@ class Simulator:
                 load=load,
                 hit_ratio=hit_ratio,
                 pool_rejected_rps=pool_rejected_rps,
+                replication_rps=replication_rps,
+                replication_lag_ms=replication_lag_ms,
             )
             self._schedule_retries(arrivals[node_id], failed_rps, demand_rps)
-            self._route(node_id, component.type, served_rps * (1 - hit_ratio), inbound, arrivals)
+            # Only real requests go downstream: not cache hits, not replicated writes.
+            read_share = 1 - replication_rps / demand_rps if demand_rps else 1.0
+            self._route(node_id, component.type, served_rps * (1 - hit_ratio) * read_share, inbound, arrivals)
 
         self._tick += 1
         return TickSnapshot(t=t, nodes=nodes, end_to_end_ms=self._end_to_end_ms(nodes))

@@ -16,6 +16,7 @@ class ComponentType(StrEnum):
     APP_SERVER = "app_server"
     DATABASE = "database"
     CACHE = "cache"
+    REPLICA = "replica"
 
 
 # Requests per second one instance can serve before it saturates.
@@ -24,6 +25,7 @@ DEFAULT_CAPACITY_RPS: dict[ComponentType, float] = {
     ComponentType.APP_SERVER: 1_000,
     ComponentType.DATABASE: 5_000,
     ComponentType.CACHE: 50_000,
+    ComponentType.REPLICA: 5_000,
 }
 
 # Time one request spends being processed when the component is idle (milliseconds).
@@ -32,6 +34,7 @@ DEFAULT_SERVICE_MS: dict[ComponentType, float] = {
     ComponentType.APP_SERVER: 20,
     ComponentType.DATABASE: 5,
     ComponentType.CACHE: 1,
+    ComponentType.REPLICA: 5,
 }
 
 # By default a component can queue up to 1 second of work before it drops requests.
@@ -59,6 +62,8 @@ class Component(BaseModel):
     ttl_s: float = Field(default=300, gt=0, description="How long a cached entry lives (seconds).")
     working_set: int = Field(default=50_000, ge=1, description="Number of distinct hot keys.")
     cold_start: bool = Field(default=False, description="Start with an empty cache.")
+    # Replica settings (only used when type is "replica").
+    replica_of: str | None = Field(default=None, description="The database this replica copies.")
 
     @property
     def total_capacity_rps(self) -> float:
@@ -143,6 +148,16 @@ class SystemGraph(BaseModel):
 
         if not downstream[client_id]:
             raise ValueError("the client is not connected to anything")
+
+        # A replica must copy a database, and is simulated after it (it replays its writes).
+        for c in self.components:
+            if c.type is ComponentType.REPLICA:
+                primary = by_id.get(c.replica_of or "")
+                if primary is None or primary.type is not ComponentType.DATABASE:
+                    raise ValueError(f"replica {c.id!r} must set replica_of to a database id")
+                predecessors[c.id].add(primary.id)
+            elif c.replica_of is not None:
+                raise ValueError(f"only replicas can set replica_of (found it on {c.id!r})")
 
         try:
             order = list(TopologicalSorter(predecessors).static_order())

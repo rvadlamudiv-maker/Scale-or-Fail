@@ -1,0 +1,29 @@
+# Client -> LB -> App (4 instances) -> DB primary (writes) + read replicas (reads)
+# Each app request makes 1.5 DB calls: 0.3 writes go to the primary, 1.2 reads go to the replicas.
+# One read replica: it serves all reads AND replays every write.
+components:
+  - id: client
+    type: client
+  - id: lb
+    type: load_balancer
+  - id: app
+    type: app_server
+    instances: 4
+    timeout_ms: 500
+  - id: db
+    type: database
+  - id: replica
+    type: replica
+    replica_of: db
+    instances: 1
+edges:
+  - source: client
+    target: lb
+  - source: lb
+    target: app
+  - source: app
+    target: db
+    calls_per_request: 0.3
+  - source: app
+    target: replica
+    calls_per_request: 1.2
