@@ -31,6 +31,14 @@ class TrafficProfile(BaseModel):
         return rps
 
 
+class Goals(BaseModel):
+    """What a design must achieve to score well in this scenario."""
+
+    availability: float = Field(default=0.999, gt=0, le=1, description="Share of requests that must succeed.")
+    p99_ms: float = Field(default=500, gt=0, description="End-to-end p99 latency target.")
+    budget_per_hour: float = Field(default=1500, gt=0, description="Average spend target ($/hour).")
+
+
 class Scenario(BaseModel):
     name: str
     description: str = ""
@@ -38,3 +46,4 @@ class Scenario(BaseModel):
     tick_hz: int = Field(default=10, ge=1, le=100)
     seed: int = 42
     traffic: TrafficProfile
+    goals: Goals = Field(default_factory=Goals)

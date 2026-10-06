@@ -10,3 +10,7 @@ traffic:
     - at_s: 20
       duration_s: 15
       multiplier: 2.5
+goals:
+  availability: 0.999
+  p99_ms: 500
+  budget_per_hour: 1500

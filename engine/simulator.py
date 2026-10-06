@@ -30,6 +30,10 @@ Autoscaling adds instances when load runs above a target utilization, but a new
 instance only starts serving after its warm-up time, so it can arrive late.
 
 Every instance costs money per hour, including instances that are still booting.
+
+Each tick also estimates availability: the chance a user request succeeds, walking
+the graph bottom-up. A call succeeds if its target and everything the target
+depends on succeed; retries give failed calls extra chances.
 """
 
 from __future__ import annotations
@@ -75,6 +79,7 @@ class TickSnapshot:
     nodes: dict[str, NodeTick]
     end_to_end_ms: float  # latency a user request sees, summed along its path
     cost_per_hour: float = 0.0  # what the whole design costs to run right now
+    success_ratio: float = 1.0  # chance a user request succeeds end to end
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +121,15 @@ class SimulationResult:
             if running >= p / 100 * total:
                 return latency
         return weighted[-1][0]
+
+    @property
+    def availability(self) -> float:
+        """Share of user requests that succeeded, weighted by traffic per tick."""
+        weights = [s.nodes[self.client_id].inbound_rps for s in self.snapshots]
+        total = sum(weights)
+        if total == 0:
+            return 1.0
+        return sum(s.success_ratio * w for s, w in zip(self.snapshots, weights)) / total
 
     @property
     def avg_cost_per_hour(self) -> float:
@@ -277,7 +291,39 @@ class Simulator:
             nodes=nodes,
             end_to_end_ms=self._end_to_end_ms(nodes),
             cost_per_hour=sum(n.cost_per_hour for n in nodes.values()),
+            success_ratio=self._success_ratio(nodes),
         )
+
+    def _success_ratio(self, nodes: dict[str, NodeTick]) -> float:
+        """Bottom-up, like end-to-end latency: a node's success = its own success rate
+        times the success of the calls it makes (each call made calls_per_request times)."""
+        ok: dict[str, float] = {}
+        for node_id in reversed(self._order):
+            n = nodes[node_id]
+            attempted = n.inbound_rps + n.pool_rejected_rps
+            failed = n.dropped_rps + n.timed_out_rps + n.pool_rejected_rps
+            own = 1 - min(1.0, failed / attempted) if attempted > 0 else 1.0
+            edges = self.graph.downstream(node_id)
+            if self.graph.component(node_id).type is ComponentType.LOAD_BALANCER:
+                weight_sum = sum(e.weight for e in edges)
+                downstream = sum(e.weight / weight_sum * self._call_success(e, ok) for e in edges)
+            else:
+                downstream = math.prod(self._call_success(e, ok) ** e.calls_per_request for e in edges)
+                # A cache hit never goes downstream.
+                downstream = n.hit_ratio + (1 - n.hit_ratio) * downstream
+            ok[node_id] = own * downstream
+        return ok[self.graph.client_id]
+
+    @staticmethod
+    def _call_success(edge: Edge, ok: dict[str, float]) -> float:
+        """A call fails only if every attempt fails. A retry budget limits the extra attempts."""
+        fail = 1 - ok[edge.target]
+        if fail == 0 or edge.retries == 0:
+            return 1 - fail
+        extra_attempts = edge.retries
+        if edge.retry_budget is not None:
+            extra_attempts = min(extra_attempts, edge.retry_budget / fail)
+        return 1 - fail ** (1 + extra_attempts)
 
     def _capacity_rps(self, node_id: str) -> float:
         component = self.graph.component(node_id)

@@ -11,6 +11,7 @@ from rich.table import Table
 
 from engine.loader import load_design, load_scenario
 from engine.models import ComponentType
+from engine.scoring import score
 from engine.simulator import SimulationResult, Simulator
 
 console = Console()
@@ -116,6 +117,24 @@ def print_summary(result: SimulationResult) -> None:
     )
 
 
+GRADE_STYLE = {"S": "bold cyan", "A": "bold green", "B": "green", "C": "yellow", "D": "bold red", "F": "bold red"}
+
+
+def print_score(result: SimulationResult) -> None:
+    card = score(result)
+    table = Table(title="Score")
+    table.add_column("")
+    table.add_column("detail")
+    table.add_column("points", justify="right")
+    for line in card.lines:
+        style = "green" if line.points > 0 and line.label != "Base" else "red" if line.points < 0 else ""
+        points = f"{line.points:+,}" if line.label != "Base" else f"{line.points:,}"
+        table.add_row(line.label, line.detail, f"[{style}]{points}[/]" if style else points)
+    table.add_row("[bold]Total[/]", "", f"[bold]{card.total:,}[/]")
+    console.print(table)
+    console.print(f"Grade: [{GRADE_STYLE[card.grade]}]{card.grade}[/]")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="sof", description="Scale or Fail simulation engine")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -137,6 +156,7 @@ def main(argv: list[str] | None = None) -> int:
     result = Simulator(design, scenario, seed=args.seed).run()
     print_timeline(result, args.every)
     print_summary(result)
+    print_score(result)
     return 0
 
 
