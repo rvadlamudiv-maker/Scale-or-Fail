@@ -1,0 +1,28 @@
+# Client -> LB -> App (4 instances) -> DB
+# Each app request makes 1.5 DB calls on average.
+# App requests give up after waiting 500 ms in the queue.
+# Same as retry_jitter, plus a retry budget: retries never exceed 10% of first attempts.
+components:
+  - id: client
+    type: client
+  - id: lb
+    type: load_balancer
+  - id: app
+    type: app_server
+    instances: 4
+    timeout_ms: 500
+  - id: db
+    type: database
+edges:
+  - source: client
+    target: lb
+  - source: lb
+    target: app
+    retries: 3
+    retry_delay_ms: 200
+    backoff: exponential
+    jitter: true
+    retry_budget: 0.1
+  - source: app
+    target: db
+    calls_per_request: 1.5

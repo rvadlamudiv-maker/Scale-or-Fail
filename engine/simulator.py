@@ -12,6 +12,8 @@ time needed to work through the backlog ahead of a new request (Little's Law).
 
 Day 3: callers retry failed calls. Failed traffic on an edge with retries comes
 back to the same target after a delay, as extra load, up to the retry limit.
+The delay can be fixed or exponential, with optional jitter to spread retries out,
+and an optional retry budget caps retries at a fraction of first attempts.
 """
 
 from __future__ import annotations
@@ -196,12 +198,35 @@ class Simulator:
         if failed_rps == 0 or demand_rps == 0:
             return
         failure_fraction = min(1.0, failed_rps / demand_rps)
+
+        # Retry budget: per edge, retries may not exceed a fraction of this tick's first attempts.
+        wanted: defaultdict[int, float] = defaultdict(float)
+        first_attempts: defaultdict[int, float] = defaultdict(float)
         for edge, attempt, rate in arrivals:
+            if attempt == 0:
+                first_attempts[id(edge)] += rate
             if attempt < edge.retries:
-                delay_ticks = max(1, round(edge.retry_delay_ms / 1000 * self.scenario.tick_hz))
-                self._pending_retries[self._tick + delay_ticks].append(
-                    (edge, attempt + 1, rate * failure_fraction)
-                )
+                wanted[id(edge)] += rate * failure_fraction
+
+        for edge, attempt, rate in arrivals:
+            if attempt >= edge.retries:
+                continue  # out of retries: this share of the failures is final
+            retry_rate = rate * failure_fraction
+            if edge.retry_budget is not None and wanted[id(edge)] > 0:
+                allowed = edge.retry_budget * first_attempts[id(edge)]
+                retry_rate *= min(1.0, allowed / wanted[id(edge)])
+            delay_ms = edge.retry_delay_ms
+            if edge.backoff == "exponential":
+                delay_ms *= 2**attempt  # 1x, 2x, 4x, 8x ... the base delay
+            delay_ticks = max(1, round(delay_ms / 1000 * self.scenario.tick_hz))
+            if edge.jitter:
+                # "Full jitter": callers pick a random moment in [0, delay], so on average
+                # the retries spread evenly over every tick in that window.
+                for d in range(1, delay_ticks + 1):
+                    self._pending_retries[self._tick + d].append((edge, attempt + 1, retry_rate / delay_ticks))
+            else:
+                # Everyone waits exactly the same time, so the retries land together.
+                self._pending_retries[self._tick + delay_ticks].append((edge, attempt + 1, retry_rate))
 
     def _end_to_end_ms(self, nodes: dict[str, NodeTick]) -> float:
         """Walk the graph bottom-up: a node's total = its own latency + what it waits on downstream."""

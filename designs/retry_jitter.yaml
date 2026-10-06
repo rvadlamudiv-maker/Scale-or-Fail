@@ -1,0 +1,27 @@
+# Client -> LB -> App (4 instances) -> DB
+# Each app request makes 1.5 DB calls on average.
+# App requests give up after waiting 500 ms in the queue.
+# Same as retry_backoff, plus jitter: each retry lands at a random moment within its delay.
+components:
+  - id: client
+    type: client
+  - id: lb
+    type: load_balancer
+  - id: app
+    type: app_server
+    instances: 4
+    timeout_ms: 500
+  - id: db
+    type: database
+edges:
+  - source: client
+    target: lb
+  - source: lb
+    target: app
+    retries: 3
+    retry_delay_ms: 200
+    backoff: exponential
+    jitter: true
+  - source: app
+    target: db
+    calls_per_request: 1.5

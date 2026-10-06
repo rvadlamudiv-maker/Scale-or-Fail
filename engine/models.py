@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from enum import StrEnum
 from graphlib import CycleError, TopologicalSorter
+from typing import Literal
 
 from pydantic import BaseModel, Field, PrivateAttr, model_validator
 
@@ -80,6 +81,13 @@ class Edge(BaseModel):
     calls_per_request: float = Field(default=1.0, gt=0, description="Downstream calls per request served by the source.")
     retries: int = Field(default=0, ge=0, le=10, description="How many times the source retries a failed call.")
     retry_delay_ms: float = Field(default=100, gt=0, description="How long the source waits before retrying.")
+    backoff: Literal["fixed", "exponential"] = Field(
+        default="fixed", description="exponential doubles the delay on every retry."
+    )
+    jitter: bool = Field(default=False, description="Spread each retry randomly over [0, delay].")
+    retry_budget: float | None = Field(
+        default=None, gt=0, le=1, description="Cap retries at this fraction of first attempts (0.1 = 10%)."
+    )
 
 
 class SystemGraph(BaseModel):

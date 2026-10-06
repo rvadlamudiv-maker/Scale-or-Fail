@@ -1,0 +1,11 @@
+name: Traffic Blip
+description: A half-second burst of 3x traffic, then back to normal.
+duration_s: 20
+tick_hz: 10
+seed: 42
+traffic:
+  base_rps: 3000
+  spikes:
+    - at_s: 5
+      duration_s: 0.5
+      multiplier: 3
