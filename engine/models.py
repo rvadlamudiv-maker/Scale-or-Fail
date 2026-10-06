@@ -137,6 +137,15 @@ class Edge(BaseModel):
         default=None, gt=0,
         description="The source gives up on a call after this long, but the target still does the work.",
     )
+    parallel: bool = Field(
+        default=False, description="Make all calls_per_request calls at once and wait for the slowest."
+    )
+
+    @model_validator(mode="after")
+    def _check_parallel(self) -> Edge:
+        if self.parallel and self.calls_per_request != int(self.calls_per_request):
+            raise ValueError("parallel calls need a whole number of calls_per_request")
+        return self
 
 
 class SystemGraph(BaseModel):

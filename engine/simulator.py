@@ -41,6 +41,10 @@ Wasted work: when a caller times out (caller_timeout_ms), the target doesn't kno
 It still processes the request, using capacity for an answer nobody is waiting for,
 and the caller may retry. That feedback loop can keep a system overloaded after the
 trigger is gone: a metastable failure.
+
+Tail-latency amplification: a parallel fan-out waits for its slowest call. With
+exponential response times (mean m), the slowest of N takes m * H_N on average,
+where H_N = 1 + 1/2 + ... + 1/N, so the more you fan out, the more the tail hurts.
 """
 
 from __future__ import annotations
@@ -572,12 +576,21 @@ class Simulator:
                 weight_sum = sum(e.weight for e in edges)
                 downstream = sum(e.weight / weight_sum * total[e.target] for e in edges)
             else:
-                # Each downstream call is made in turn, so their latencies add up.
-                downstream = sum(e.calls_per_request * total[e.target] for e in edges)
+                # Sequential calls add up; a parallel fan-out waits for its slowest call.
+                downstream = sum(self._call_latency_ms(e, total[e.target]) for e in edges)
                 # A cache only goes downstream on a miss.
                 downstream *= 1 - nodes[node_id].hit_ratio
             total[node_id] = nodes[node_id].latency_ms + downstream
         return total[self.graph.client_id]
+
+    @staticmethod
+    def _call_latency_ms(edge: Edge, target_ms: float) -> float:
+        """Time a caller spends on its calls_per_request calls to one target."""
+        if edge.parallel:
+            n = int(edge.calls_per_request)
+            harmonic = sum(1 / k for k in range(1, n + 1))  # H_N: expected max of N exponentials / mean
+            return target_ms * harmonic
+        return edge.calls_per_request * target_ms
 
     @staticmethod
     def _latency_ms(service_ms: float, capacity_rps: float, served_rps: float, queue: float) -> float:

@@ -1,0 +1,24 @@
+# Client -> LB -> Search API (8 instances) -> Shards (86 instances, 10 ms each)
+# Every query fans out to 20 shards in parallel and waits for the slowest one.
+components:
+  - id: client
+    type: client
+  - id: lb
+    type: load_balancer
+  - id: search
+    type: app_server
+    instances: 8
+    service_ms: 5
+  - id: shard
+    type: app_server
+    instances: 86
+    service_ms: 10
+edges:
+  - source: client
+    target: lb
+  - source: lb
+    target: search
+  - source: search
+    target: shard
+    calls_per_request: 20
+    parallel: true
