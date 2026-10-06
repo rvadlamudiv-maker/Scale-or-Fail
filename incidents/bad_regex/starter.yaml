@@ -1,0 +1,19 @@
+# The Bad Regex - starting design.
+# Every request passes through the edge (proxy + firewall) before reaching the origin.
+# Changes to the edge roll out everywhere at once, and nothing limits how much CPU one request can burn.
+components:
+  - id: client
+    type: client
+  - id: edge
+    type: app_server
+    instances: 10
+    service_ms: 5
+    timeout_ms: 500
+  - id: origin
+    type: app_server
+    instances: 10
+edges:
+  - source: client
+    target: edge
+  - source: edge
+    target: origin

@@ -1,0 +1,35 @@
+name: The Bad Regex
+description: A routine firewall rule update ships everywhere in seconds - and one regular expression pins every edge server's CPU.
+duration_s: 60
+tick_hz: 10
+seed: 42
+traffic:
+  base_rps: 6000
+  noise: 0.05
+goals:
+  availability: 0.999
+  p99_ms: 500
+  budget_per_hour: 2500
+events:
+  # A new firewall rule makes the edge 20x slower. Rolled out globally, it stays until humans
+  # find it and roll it back (25 s here; 27 minutes in real life).
+  - at_s: 10
+    kind: bad_deploy
+    target: edge
+    factor: 20
+    duration_s: 25
+incident:
+  title: Cloudflare global outage
+  date: "2019-07-02"
+  postmortem_url: https://blog.cloudflare.com/details-of-the-cloudflare-outage-on-july-2-2019/
+  summary: >-
+    A routine update to Cloudflare's web application firewall rules included a regular expression
+    that backtracked catastrophically. Rule updates were allowed to go to every server worldwide
+    within seconds, so the expression exhausted the CPU used for serving HTTP and HTTPS traffic
+    across the whole network at once, and visitors got 502 errors. A CPU-usage protection that would
+    have helped had been removed by mistake weeks earlier, and the outage lasted 27 minutes.
+  real_fixes:
+    - Used a global kill switch to turn the firewall off everywhere; traffic and CPU recovered within minutes.
+    - Restored the CPU-usage protection that had been removed by mistake during an earlier refactor.
+    - Moved rule changes to staged rollouts, like the rest of Cloudflare's software, keeping a fast path only for active attacks.
+    - Switched to a regular expression engine with run-time guarantees and added CPU profiling to the rule test suite.

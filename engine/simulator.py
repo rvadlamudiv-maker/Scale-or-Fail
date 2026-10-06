@@ -54,6 +54,10 @@ Correctness: a replica further behind than the scenario's staleness tolerance T
 serves stale data. With lag L > T, a share 1 - T/L of its reads count as stale
 (the further behind, the more reads it gets wrong). Freshness is tracked
 end to end like availability: a request is fresh only if every read it made was.
+
+Bad deploys: a global rollout slows every instance until someone rolls it back;
+a canary rollout only hits a few instances and is rolled back automatically.
+A CPU guard caps how much one runaway request can slow an instance down.
 """
 
 from __future__ import annotations
@@ -69,6 +73,9 @@ from engine.scenario import Scenario
 
 # Utilization is capped below 1.0 so the M/M/1 curve stays finite at saturation.
 MAX_UTILIZATION = 0.95
+
+# With a CPU guard, a runaway request can slow an instance down by at most this much.
+CPU_GUARD_MAX_SLOWDOWN = 1.5
 
 # How far behind a healthy replica runs (network + apply time), in milliseconds.
 BASE_REPLICATION_LAG_MS = 10
@@ -487,8 +494,12 @@ class Simulator:
         hz = self.scenario.tick_hz
         for event in self._events:
             start = round(event.at_s * hz)
-            end = round((event.at_s + event.duration_s) * hz) if event.duration_s else None
-            if self._tick == start:
+            end = self._end_tick(event)
+            if self._tick == start and event.kind == "bad_deploy":
+                labels.append(self._start_deploy(event))
+            elif self._tick == end and event.kind == "bad_deploy":
+                labels.append(self._end_deploy(event))
+            elif self._tick == start:
                 labels.append(event.label())
                 if event.kind == "kill_instances":
                     self._instances[event.target] = max(0, self._instances[event.target] - event.count)
@@ -510,6 +521,38 @@ class Simulator:
                     self._queues[event.target] += self._gray_queues[event.target]
                     self._gray_queues[event.target] = 0.0
         return labels
+
+    def _end_tick(self, event) -> int | None:
+        hz = self.scenario.tick_hz
+        component = self.graph.component(event.target)
+        if event.kind == "bad_deploy" and component.rollout == "canary":
+            return round((event.at_s + component.canary_bake_s) * hz)  # the canary catches it
+        return round((event.at_s + event.duration_s) * hz) if event.duration_s else None
+
+    def _start_deploy(self, event) -> str:
+        """A bad deploy ships: everywhere at once, or only to the canary."""
+        component = self.graph.component(event.target)
+        factor = event.factor
+        guard_note = ""
+        if component.cpu_guard and factor > CPU_GUARD_MAX_SLOWDOWN:
+            factor = CPU_GUARD_MAX_SLOWDOWN
+            guard_note = f" (CPU guard caps it at {factor:g}x)"
+        if component.rollout == "canary":
+            count = min(component.canary_instances, self._instances[event.target])
+            self._gray[event.target] = (count, factor)
+            return f"bad deploy to {event.target}: canary ({count} instance(s)) {event.factor:g}x slower{guard_note}"
+        self._slowdown[event.target] = factor
+        return f"bad deploy to {event.target}: every instance {event.factor:g}x slower{guard_note}"
+
+    def _end_deploy(self, event) -> str:
+        component = self.graph.component(event.target)
+        if component.rollout == "canary":
+            self._gray[event.target] = (0, 1.0)
+            self._queues[event.target] += self._gray_queues[event.target]
+            self._gray_queues[event.target] = 0.0
+            return f"canary failed: {event.target} deploy rolled back automatically, it never went global"
+        self._slowdown[event.target] = 1.0
+        return f"rolled back: bad deploy to {event.target}"
 
     @staticmethod
     def _queue_limit(component, capacity_rps: float) -> float:

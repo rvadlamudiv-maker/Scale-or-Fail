@@ -40,10 +40,13 @@ class ChaosEvent(BaseModel):
     slow_down:      `target` becomes `factor` times slower (and serves `factor` times less).
     gray_failure:   `count` instances of `target` become `factor` times slower but still pass
                     health checks, so they keep getting traffic.
+    bad_deploy:     a change that makes `target` `factor` times slower ships. With a global rollout it
+                    hits every instance until humans roll it back after duration_s; with a canary
+                    rollout it only hits the canary and is rolled back automatically.
     """
 
     at_s: float = Field(ge=0, description="When it happens (simulated seconds).")
-    kind: Literal["kill_instances", "cache_flush", "slow_down", "gray_failure"]
+    kind: Literal["kill_instances", "cache_flush", "slow_down", "gray_failure", "bad_deploy"]
     target: str = Field(min_length=1, description="Component id it hits.")
     count: int = Field(default=1, ge=1, description="kill_instances / gray_failure: how many instances.")
     factor: float = Field(default=2.0, gt=1, description="slow_down / gray_failure: how many times slower.")
@@ -55,6 +58,7 @@ class ChaosEvent(BaseModel):
             "cache_flush": f"{self.target} flushed",
             "slow_down": f"{self.target} {self.factor:g}x slower",
             "gray_failure": f"{self.count} {self.target} instance(s) {self.factor:g}x slower, still passing health checks",
+            "bad_deploy": f"bad deploy to {self.target} ({self.factor:g}x slower)",
         }[self.kind]
         return what + (f" for {self.duration_s:g}s" if self.duration_s else "")
 

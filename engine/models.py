@@ -80,6 +80,17 @@ class Component(BaseModel):
     warmup_s: float = Field(default=30, ge=0, description="Seconds before a new instance can serve traffic.")
     scale_in_after_s: float = Field(default=60, ge=0, description="Low load must last this long before scaling in.")
     price_per_hour: float | None = Field(default=None, ge=0, description="Per-instance price override ($/hour).")
+    rollout: Literal["global", "canary"] = Field(
+        default="global",
+        description="How deploys reach this component: everywhere at once, or to a canary first.",
+    )
+    canary_instances: int = Field(default=1, ge=1, description="Instances that get a canary deploy first.")
+    canary_bake_s: float = Field(
+        default=10, gt=0, description="How long a canary runs before a bad deploy is rolled back automatically."
+    )
+    cpu_guard: bool = Field(
+        default=False, description="A per-request CPU limit: a runaway request can't hog a whole server."
+    )
     balancing: Literal["round_robin", "least_outstanding"] = Field(
         default="round_robin",
         description="How traffic is spread over this component's instances. least_outstanding sends "

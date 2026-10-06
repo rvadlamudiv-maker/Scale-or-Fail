@@ -1,0 +1,23 @@
+# The Bad Regex - a design that survives.
+# 1. Canary rollouts: a change reaches 1 edge server first and is rolled back automatically if it misbehaves.
+# 2. A CPU guard: even on that canary, one runaway request can't take a whole server down.
+components:
+  - id: client
+    type: client
+  - id: edge
+    type: app_server
+    instances: 10
+    service_ms: 5
+    timeout_ms: 500
+    rollout: canary
+    canary_instances: 1
+    canary_bake_s: 10
+    cpu_guard: true
+  - id: origin
+    type: app_server
+    instances: 10
+edges:
+  - source: client
+    target: edge
+  - source: edge
+    target: origin

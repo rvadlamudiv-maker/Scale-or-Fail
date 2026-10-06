@@ -54,3 +54,19 @@ def test_monday_preemptive_scaling_beats_faster_autoscaling():
     # Even a 5 s scale-up leaves a gap when traffic triples at once; scaling ahead of time leaves none.
     assert min(s.success_ratio for s in fast_autoscaling.snapshots) < 0.9
     assert min(s.success_ratio for s in prescaled.snapshots) > 0.99
+
+
+def test_a_canary_limits_the_blast_radius_of_a_bad_deploy():
+    import yaml
+
+    from engine.models import SystemGraph
+
+    folder = Path(__file__).resolve().parent.parent / "incidents" / "bad_regex"
+    scenario = load_scenario(folder / "scenario.yaml")
+    canary_only = yaml.safe_load(open(folder / "starter.yaml"))
+    next(c for c in canary_only["components"] if c["id"] == "edge")["rollout"] = "canary"
+    global_rollout = run(folder, "starter")
+    canary = Simulator(SystemGraph.model_validate(canary_only), scenario).run()
+    # Global: almost every request fails until the rollback. Canary: only the canary's share does.
+    assert min(s.success_ratio for s in global_rollout.snapshots) < 0.1
+    assert min(s.success_ratio for s in canary.snapshots) > 0.85
