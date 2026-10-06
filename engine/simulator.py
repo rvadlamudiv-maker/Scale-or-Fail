@@ -4,11 +4,14 @@ Traffic moves as rates (requests/second) through the graph in topological
 order, not as individual requests, so the engine stays fast at millions of
 simulated RPS.
 
-Day 2: each node has a queue. Requests it can't serve this tick wait in line;
-only when the queue is full are requests dropped. Requests that would wait
-longer than a component's timeout give up (time out). Each node also reports a
+Each node has a queue. Requests it can't serve this tick wait in line; only
+when the queue is full are requests dropped. Requests that would wait longer
+than a component's timeout give up (time out). Each node also reports a
 latency: its service time stretched by utilization (the M/M/1 curve) plus the
 time needed to work through the backlog ahead of a new request (Little's Law).
+
+Day 3: callers retry failed calls. Failed traffic on an edge with retries comes
+back to the same target after a delay, as extra load, up to the retry limit.
 """
 
 from __future__ import annotations
@@ -19,7 +22,7 @@ from collections import defaultdict
 from collections.abc import Iterator
 from dataclasses import dataclass
 
-from engine.models import ComponentType, SystemGraph
+from engine.models import ComponentType, Edge, SystemGraph
 from engine.scenario import Scenario
 
 # Utilization is capped below 1.0 so the M/M/1 curve stays finite at saturation.
@@ -28,7 +31,8 @@ MAX_UTILIZATION = 0.95
 
 @dataclass(frozen=True, slots=True)
 class NodeTick:
-    inbound_rps: float
+    inbound_rps: float  # everything that arrived, first attempts + retries
+    retry_rps: float  # the part of inbound_rps that is retries
     served_rps: float
     dropped_rps: float  # rejected because the queue was full
     timed_out_rps: float  # gave up after waiting longer than the timeout
@@ -54,6 +58,7 @@ class NodeSummary:
     peak_latency_ms: float
     drop_rate: float
     timeout_rate: float
+    retry_share: float  # fraction of all arrivals that were retries
     overloaded_s: float
 
 
@@ -85,6 +90,7 @@ class SimulationResult:
             inbound = sum(t.inbound_rps for t in ticks)
             dropped = sum(t.dropped_rps for t in ticks)
             timed_out = sum(t.timed_out_rps for t in ticks)
+            retries = sum(t.retry_rps for t in ticks)
             out[node_id] = NodeSummary(
                 avg_inbound_rps=inbound / n,
                 avg_served_rps=sum(t.served_rps for t in ticks) / n,
@@ -94,9 +100,15 @@ class SimulationResult:
                 peak_latency_ms=max(t.latency_ms for t in ticks),
                 drop_rate=dropped / inbound if inbound else 0.0,
                 timeout_rate=timed_out / inbound if inbound else 0.0,
+                retry_share=retries / inbound if inbound else 0.0,
                 overloaded_s=sum(dt for t in ticks if t.load > 1.0),
             )
         return out
+
+
+# One batch of traffic travelling along an edge: (edge, attempt number, rate).
+# attempt 0 is the first try; attempt 1 is the first retry, and so on.
+Arrival = tuple[Edge, int, float]
 
 
 class Simulator:
@@ -110,6 +122,8 @@ class Simulator:
         self._rng = random.Random(scenario.seed if seed is None else seed)
         self._order = graph.topological_order()
         self._queues: dict[str, float] = {node_id: 0.0 for node_id in self._order}
+        # Retries waiting to be re-sent, keyed by the tick they arrive on.
+        self._pending_retries: defaultdict[int, list[Arrival]] = defaultdict(list)
         self._tick = 0
 
     @property
@@ -122,6 +136,14 @@ class Simulator:
         t = self._tick * self.dt
         inbound: defaultdict[str, float] = defaultdict(float)
         inbound[self.graph.client_id] = self.scenario.traffic.rps_at(t, self._rng)
+
+        # Who sent what to each node this tick, so failures can be retried by the right caller.
+        arrivals: defaultdict[str, list[Arrival]] = defaultdict(list)
+        retry_in: defaultdict[str, float] = defaultdict(float)
+        for edge, attempt, rate in self._pending_retries.pop(self._tick, []):
+            inbound[edge.target] += rate
+            retry_in[edge.target] += rate
+            arrivals[edge.target].append((edge, attempt, rate))
 
         nodes: dict[str, NodeTick] = {}
         for node_id in self._order:
@@ -152,8 +174,10 @@ class Simulator:
 
             self._queues[node_id] = queue
             served_rps = served / self.dt
+            failed_rps = (dropped + timed_out) / self.dt
             nodes[node_id] = NodeTick(
                 inbound_rps=demand_rps,
+                retry_rps=retry_in[node_id],
                 served_rps=served_rps,
                 dropped_rps=dropped / self.dt,
                 timed_out_rps=timed_out / self.dt,
@@ -161,10 +185,23 @@ class Simulator:
                 latency_ms=latency_ms,
                 load=load,
             )
-            self._route(node_id, component.type, served_rps, inbound)
+            self._schedule_retries(arrivals[node_id], failed_rps, demand_rps)
+            self._route(node_id, component.type, served_rps, inbound, arrivals)
 
         self._tick += 1
         return TickSnapshot(t=t, nodes=nodes, end_to_end_ms=self._end_to_end_ms(nodes))
+
+    def _schedule_retries(self, arrivals: list[Arrival], failed_rps: float, demand_rps: float) -> None:
+        """Each caller's share of this tick's failures comes back later, if it has retries left."""
+        if failed_rps == 0 or demand_rps == 0:
+            return
+        failure_fraction = min(1.0, failed_rps / demand_rps)
+        for edge, attempt, rate in arrivals:
+            if attempt < edge.retries:
+                delay_ticks = max(1, round(edge.retry_delay_ms / 1000 * self.scenario.tick_hz))
+                self._pending_retries[self._tick + delay_ticks].append(
+                    (edge, attempt + 1, rate * failure_fraction)
+                )
 
     def _end_to_end_ms(self, nodes: dict[str, NodeTick]) -> float:
         """Walk the graph bottom-up: a node's total = its own latency + what it waits on downstream."""
@@ -191,17 +228,21 @@ class Simulator:
         backlog_wait_s = queue / capacity_rps
         return (processing_s + backlog_wait_s) * 1000
 
-    def _route(self, node_id, kind, served_rps, inbound) -> None:
+    def _route(self, node_id, kind, served_rps, inbound, arrivals) -> None:
         edges = self.graph.downstream(node_id)
         if not edges or served_rps == 0:
             return
         if kind is ComponentType.LOAD_BALANCER:
             total_weight = sum(e.weight for e in edges)
             for e in edges:
-                inbound[e.target] += served_rps * e.weight / total_weight
+                rate = served_rps * e.weight / total_weight
+                inbound[e.target] += rate
+                arrivals[e.target].append((e, 0, rate))
         else:
             for e in edges:
-                inbound[e.target] += served_rps * e.calls_per_request
+                rate = served_rps * e.calls_per_request
+                inbound[e.target] += rate
+                arrivals[e.target].append((e, 0, rate))
 
     def iter_ticks(self) -> Iterator[TickSnapshot]:
         while not self.done:

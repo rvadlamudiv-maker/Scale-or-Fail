@@ -78,6 +78,8 @@ class Edge(BaseModel):
     target: str
     weight: float = Field(default=1.0, gt=0, description="Share of traffic when the source is a load balancer.")
     calls_per_request: float = Field(default=1.0, gt=0, description="Downstream calls per request served by the source.")
+    retries: int = Field(default=0, ge=0, le=10, description="How many times the source retries a failed call.")
+    retry_delay_ms: float = Field(default=100, gt=0, description="How long the source waits before retrying.")
 
 
 class SystemGraph(BaseModel):
