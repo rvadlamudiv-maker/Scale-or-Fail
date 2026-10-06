@@ -79,6 +79,9 @@ class NodeSummary:
     drop_rate: float
     timeout_rate: float
     retry_share: float  # fraction of all arrivals that were retries
+    pool_reject_rate: float  # calls rejected for lack of a connection, vs. calls attempted
+    avg_hit_ratio: float  # caches only
+    peak_replication_lag_ms: float  # replicas only
     overloaded_s: float
 
 
@@ -87,6 +90,7 @@ class SimulationResult:
     scenario: Scenario
     snapshots: list[TickSnapshot]
     client_id: str
+    component_types: dict[str, ComponentType]
 
     def latency_percentile(self, p: float) -> float:
         """End-to-end latency percentile across the run, weighted by traffic per tick."""
@@ -111,6 +115,7 @@ class SimulationResult:
             dropped = sum(t.dropped_rps for t in ticks)
             timed_out = sum(t.timed_out_rps for t in ticks)
             retries = sum(t.retry_rps for t in ticks)
+            pool_rejected = sum(t.pool_rejected_rps for t in ticks)
             out[node_id] = NodeSummary(
                 avg_inbound_rps=inbound / n,
                 avg_served_rps=sum(t.served_rps for t in ticks) / n,
@@ -121,6 +126,9 @@ class SimulationResult:
                 drop_rate=dropped / inbound if inbound else 0.0,
                 timeout_rate=timed_out / inbound if inbound else 0.0,
                 retry_share=retries / inbound if inbound else 0.0,
+                pool_reject_rate=pool_rejected / (inbound + pool_rejected) if inbound + pool_rejected else 0.0,
+                avg_hit_ratio=sum(t.hit_ratio for t in ticks) / n,
+                peak_replication_lag_ms=max(t.replication_lag_ms for t in ticks),
                 overloaded_s=sum(dt for t in ticks if t.load > 1.0),
             )
         return out
@@ -387,4 +395,5 @@ class Simulator:
             scenario=self.scenario,
             snapshots=list(self.iter_ticks()),
             client_id=self.graph.client_id,
+            component_types={c.id: c.type for c in self.graph.components},
         )

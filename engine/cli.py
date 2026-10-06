@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.table import Table
 
 from engine.loader import load_design, load_scenario
+from engine.models import ComponentType
 from engine.simulator import SimulationResult, Simulator
 
 console = Console()
@@ -31,13 +32,29 @@ def _style_for_latency(ms: float) -> str:
     return "green"
 
 
+def _style_for_rate(rate: float) -> str:
+    if rate > 0.05:
+        return "bold red"
+    if rate > 0:
+        return "yellow"
+    return "green"
+
+
+def _style_for_lag(ms: float) -> str:
+    if ms > 500:
+        return "bold red"
+    if ms > 100:
+        return "yellow"
+    return "green"
+
+
 def _fmt(n: float) -> str:
     return f"{n:,.0f}"
 
 
 def print_timeline(result: SimulationResult, every_s: float) -> None:
     node_ids = list(result.snapshots[0].nodes)
-    table = Table(title="Served RPS over time  (-N = failed: dropped + timed out)")
+    table = Table(title="Served RPS over time  (-N = failed: dropped + timed out + no connection)")
     table.add_column("t (s)", justify="right")
     for node_id in node_ids:
         table.add_column(node_id, justify="right")
@@ -48,7 +65,7 @@ def print_timeline(result: SimulationResult, every_s: float) -> None:
         for node_id in node_ids:
             tick = snap.nodes[node_id]
             text = _fmt(tick.served_rps)
-            failed = tick.dropped_rps + tick.timed_out_rps
+            failed = tick.dropped_rps + tick.timed_out_rps + tick.pool_rejected_rps
             if failed > 0:
                 text += f" (-{_fmt(failed)})"
             cells.append(f"[{_style_for_load(tick.load)}]{text}[/]")
@@ -58,21 +75,33 @@ def print_timeline(result: SimulationResult, every_s: float) -> None:
     console.print(table)
 
 
+def _notes(result: SimulationResult, node_id: str, s) -> str:
+    """Extra detail for special components."""
+    kind = result.component_types[node_id]
+    if kind is ComponentType.CACHE:
+        return f"hit ratio {s.avg_hit_ratio:.0%}"
+    if kind is ComponentType.REPLICA:
+        lag = s.peak_replication_lag_ms
+        return f"[{_style_for_lag(lag)}]lag up to {_fmt(lag)} ms[/]"
+    return ""
+
+
 def print_summary(result: SimulationResult) -> None:
     table = Table(title="Summary")
-    columns = ("node", "avg in", "peak load", "peak queue", "peak latency", "dropped", "timed out", "overloaded")
+    columns = ("node", "avg in", "peak load", "peak latency", "failed", "retries", "overloaded", "notes")
     for col in columns:
-        table.add_column(col, justify="left" if col == "node" else "right")
+        table.add_column(col, justify="left" if col in ("node", "notes") else "right")
     for node_id, s in result.summary().items():
+        failed = s.drop_rate + s.timeout_rate + s.pool_reject_rate
         table.add_row(
             node_id,
             _fmt(s.avg_inbound_rps),
             f"[{_style_for_load(s.peak_load)}]{s.peak_load:.0%}[/]",
-            _fmt(s.peak_queue),
             f"[{_style_for_latency(s.peak_latency_ms)}]{_fmt(s.peak_latency_ms)} ms[/]",
-            f"{s.drop_rate:.1%}",
-            f"{s.timeout_rate:.1%}",
+            f"[{_style_for_rate(failed)}]{failed:.1%}[/]",
+            f"{s.retry_share:.0%}",
             f"{s.overloaded_s:.1f}s",
+            _notes(result, node_id, s),
         )
     console.print(table)
     p50, p99 = result.latency_percentile(50), result.latency_percentile(99)
