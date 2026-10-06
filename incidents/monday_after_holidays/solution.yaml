@@ -1,0 +1,33 @@
+# Monday After the Holidays - a design that survives.
+# The real follow-up: scale the network hub up *before* the first day back, instead of trusting
+# it to autoscale through a 3x jump overnight. 5 instances (10,000 rps) covers the surge from minute one.
+components:
+  - id: client
+    type: client
+  - id: lb
+    type: load_balancer
+  - id: web
+    type: app_server
+    instances: 8
+    max_instances: 12
+    warmup_s: 5
+    timeout_ms: 500
+  - id: network_hub
+    type: app_server
+    instances: 5
+    max_instances: 8
+    capacity_rps: 2000
+    service_ms: 2
+    warmup_s: 45
+  - id: backend
+    type: database
+    instances: 2
+edges:
+  - source: client
+    target: lb
+  - source: lb
+    target: web
+  - source: web
+    target: network_hub
+  - source: network_hub
+    target: backend

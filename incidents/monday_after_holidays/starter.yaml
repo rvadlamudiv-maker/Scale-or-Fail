@@ -1,0 +1,33 @@
+# Monday After the Holidays - starting design.
+# The web tier autoscales quickly (5 s boot). The network hub between the web tier and the
+# backends autoscales too, but it's sized for the holidays and takes 45 s to add capacity.
+components:
+  - id: client
+    type: client
+  - id: lb
+    type: load_balancer
+  - id: web
+    type: app_server
+    instances: 8
+    max_instances: 12
+    warmup_s: 5
+    timeout_ms: 500
+  - id: network_hub
+    type: app_server
+    instances: 2
+    max_instances: 8
+    capacity_rps: 2000
+    service_ms: 2
+    warmup_s: 45
+  - id: backend
+    type: database
+    instances: 2
+edges:
+  - source: client
+    target: lb
+  - source: lb
+    target: web
+  - source: web
+    target: network_hub
+  - source: network_hub
+    target: backend

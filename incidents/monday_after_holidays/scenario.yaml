@@ -1,0 +1,36 @@
+name: Monday After the Holidays
+description: The quietest week of the year ends overnight. Traffic triples, clients arrive with cold caches - and the network hub can't scale fast enough.
+duration_s: 90
+tick_hz: 10
+seed: 42
+traffic:
+  base_rps: 2000
+  noise: 0.05
+  spikes:
+    # First morning back: everyone reconnects, and cold client caches pull extra data.
+    - at_s: 10
+      duration_s: 80
+      multiplier: 3
+    # A "mini-peak" at the top of the hour, when scheduled reminders and automations fire.
+    - at_s: 40
+      duration_s: 5
+      multiplier: 1.2
+goals:
+  availability: 0.999
+  p99_ms: 500
+  budget_per_hour: 2500
+incident:
+  title: Slack outage
+  date: "2021-01-04"
+  postmortem_url: https://slack.engineering/slacks-outage-on-january-4th-2021/
+  summary: >-
+    On the first working day of 2021, Slack went from its quietest week of the year to one of its
+    busiest days overnight, with clients reconnecting on cold caches and pulling down extra data.
+    Slack's own servers could scale for that, but one of the managed network hubs linking its
+    networks didn't scale fast enough and started dropping packets. Calls slowed down, the web tier
+    saturated, and the autoscaling and provisioning systems struggled on the same degraded network.
+  real_fixes:
+    - Engineers at the cloud provider manually increased the network hub's capacity, which ended the incident.
+    - The provider reviewed how the hub scales for sudden, large jumps in traffic.
+    - Slack set a reminder to request preemptive upscaling of the hubs at the end of the next holiday season.
+    - Slack moved its dashboards next to their databases so monitoring no longer depended on the hub, and planned load tests of its provisioning service.

@@ -38,3 +38,19 @@ def test_the_retry_storm_outlives_its_trigger():
     assert starter.snapshots[-1].success_ratio < 0.01
     # ...while the solution never goes down at all.
     assert min(s.success_ratio for s in solution.snapshots) > 0.99
+
+
+def test_monday_preemptive_scaling_beats_faster_autoscaling():
+    import yaml
+
+    from engine.models import SystemGraph
+
+    folder = Path(__file__).resolve().parent.parent / "incidents" / "monday_after_holidays"
+    scenario = load_scenario(folder / "scenario.yaml")
+    faster = yaml.safe_load(open(folder / "starter.yaml"))
+    next(c for c in faster["components"] if c["id"] == "network_hub")["warmup_s"] = 5
+    fast_autoscaling = Simulator(SystemGraph.model_validate(faster), scenario).run()
+    prescaled = run(folder, "solution")
+    # Even a 5 s scale-up leaves a gap when traffic triples at once; scaling ahead of time leaves none.
+    assert min(s.success_ratio for s in fast_autoscaling.snapshots) < 0.9
+    assert min(s.success_ratio for s in prescaled.snapshots) > 0.99
