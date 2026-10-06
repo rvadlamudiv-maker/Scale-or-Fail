@@ -74,6 +74,9 @@ def print_timeline(result: SimulationResult, every_s: float) -> None:
         cells.append(f"[{_style_for_latency(e2e)}]{_fmt(e2e)} ms[/]")
         table.add_row(f"{snap.t:.1f}", *cells)
     console.print(table)
+    for snap in result.snapshots:
+        for label in snap.events:
+            console.print(f"  [bold magenta]{snap.t:5.1f}s  ⚡ {label}[/]")
 
 
 def _notes(result: SimulationResult, node_id: str, s) -> str:

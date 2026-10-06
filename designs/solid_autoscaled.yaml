@@ -1,0 +1,27 @@
+# Client -> LB -> App (8-12 instances, autoscaled, 5 s boot) -> Cache -> DB
+# Like solid, but the autoscaler replaces dead app servers within seconds.
+components:
+  - id: client
+    type: client
+  - id: lb
+    type: load_balancer
+  - id: app
+    type: app_server
+    instances: 8
+    max_instances: 12
+    warmup_s: 5
+    timeout_ms: 500
+  - id: cache
+    type: cache
+  - id: db
+    type: database
+edges:
+  - source: client
+    target: lb
+  - source: lb
+    target: app
+  - source: app
+    target: cache
+    calls_per_request: 1.5
+  - source: cache
+    target: db

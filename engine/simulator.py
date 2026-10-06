@@ -34,6 +34,8 @@ Every instance costs money per hour, including instances that are still booting.
 Each tick also estimates availability: the chance a user request succeeds, walking
 the graph bottom-up. A call succeeds if its target and everything the target
 depends on succeed; retries give failed calls extra chances.
+
+Chaos events break things mid-run: kill instances, flush a cache, slow a component down.
 """
 
 from __future__ import annotations
@@ -80,6 +82,7 @@ class TickSnapshot:
     end_to_end_ms: float  # latency a user request sees, summed along its path
     cost_per_hour: float = 0.0  # what the whole design costs to run right now
     success_ratio: float = 1.0  # chance a user request succeeds end to end
+    events: tuple[str, ...] = ()  # chaos events that started or ended this tick
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,6 +199,15 @@ class Simulator:
         self._instances: dict[str, int] = {n: graph.component(n).instances for n in self._order}
         self._booting: defaultdict[str, list[tuple[int, int]]] = defaultdict(list)
         self._low_load_since: dict[str, int | None] = {n: None for n in self._order}
+        # Chaos: how many times slower each node currently runs.
+        self._slowdown: dict[str, float] = {n: 1.0 for n in self._order}
+        # Events aimed at a component this design doesn't have (e.g. flushing a cache in a
+        # design without one) simply don't happen; the rest must make sense.
+        self._events = [e for e in scenario.events if e.target in self._instances]
+        self._skipped_events = [e for e in scenario.events if e.target not in self._instances]
+        for event in self._events:
+            if event.kind == "cache_flush" and graph.component(event.target).type is not ComponentType.CACHE:
+                raise ValueError(f"cache_flush needs a cache, but {event.target!r} is not one")
         self._tick = 0
 
     @property
@@ -208,6 +220,8 @@ class Simulator:
         t = self._tick * self.dt
         inbound: defaultdict[str, float] = defaultdict(float)
         inbound[self.graph.client_id] = self.scenario.traffic.rps_at(t, self._rng)
+
+        event_labels = self._apply_chaos()
 
         # Who sent what to each node this tick, so failures can be retried by the right caller.
         arrivals: defaultdict[str, list[Arrival]] = defaultdict(list)
@@ -234,6 +248,11 @@ class Simulator:
                 # The client has no limit: everything it sends goes out this tick.
                 served, dropped, timed_out, queue, load = demand_rps * self.dt, 0.0, 0.0, 0.0, 0.0
                 latency_ms = 0.0
+            elif capacity_rps <= 0:
+                # Every instance is down: everything that arrives (or was waiting) fails.
+                served, timed_out, queue, latency_ms = 0.0, 0.0, 0.0, 0.0
+                dropped = self._queues[node_id] + demand_rps * self.dt
+                load = 10.0 if demand_rps > 0 else 0.0
             else:
                 # Work in request counts for this tick, not rates.
                 available = self._queues[node_id] + demand_rps * self.dt
@@ -249,7 +268,7 @@ class Simulator:
                 dropped = max(0.0, queue - self._queue_limit(component, capacity_rps))
                 queue -= dropped
                 load = demand_rps / capacity_rps
-                latency_ms = self._latency_ms(component, capacity_rps, served / self.dt, queue)
+                latency_ms = self._latency_ms(self._service_ms(node_id), capacity_rps, served / self.dt, queue)
 
             self._queues[node_id] = queue
             served_rps = served / self.dt
@@ -292,6 +311,7 @@ class Simulator:
             end_to_end_ms=self._end_to_end_ms(nodes),
             cost_per_hour=sum(n.cost_per_hour for n in nodes.values()),
             success_ratio=self._success_ratio(nodes),
+            events=tuple(event_labels),
         )
 
     def _success_ratio(self, nodes: dict[str, NodeTick]) -> float:
@@ -328,7 +348,35 @@ class Simulator:
     def _capacity_rps(self, node_id: str) -> float:
         component = self.graph.component(node_id)
         per_instance = component.total_capacity_rps / component.instances
-        return per_instance * self._instances[node_id]
+        return per_instance * self._instances[node_id] / self._slowdown[node_id]
+
+    def _service_ms(self, node_id: str) -> float:
+        return self.graph.component(node_id).service_time_ms * self._slowdown[node_id]
+
+    def _apply_chaos(self) -> list[str]:
+        """Start or end chaos events scheduled for this tick. Returns what happened."""
+        labels = []
+        if self._tick == 0:
+            labels += [f"skipped: {e.label()} (no {e.target!r} in this design)" for e in self._skipped_events]
+        hz = self.scenario.tick_hz
+        for event in self._events:
+            start = round(event.at_s * hz)
+            end = round((event.at_s + event.duration_s) * hz) if event.duration_s else None
+            if self._tick == start:
+                labels.append(event.label())
+                if event.kind == "kill_instances":
+                    self._instances[event.target] = max(0, self._instances[event.target] - event.count)
+                elif event.kind == "cache_flush":
+                    self._hit_ratios[event.target] = 0.0
+                elif event.kind == "slow_down":
+                    self._slowdown[event.target] = event.factor
+            elif self._tick == end:
+                labels.append(f"recovered: {event.label()}")
+                if event.kind == "kill_instances":
+                    self._instances[event.target] += event.count
+                elif event.kind == "slow_down":
+                    self._slowdown[event.target] = 1.0
+        return labels
 
     @staticmethod
     def _queue_limit(component, capacity_rps: float) -> float:
@@ -387,7 +435,9 @@ class Simulator:
             if edge.pool_size is None or per_edge[id(edge)] == 0:
                 kept.append((edge, attempt, rate))
                 continue
-            max_rps = self._pool_limit_rps(component, self._capacity_rps(node_id), edge.pool_size, self._queues[node_id])
+            max_rps = self._pool_limit_rps(
+                self._service_ms(node_id), self._capacity_rps(node_id), edge.pool_size, self._queues[node_id]
+            )
             allowed = min(1.0, max_rps / per_edge[id(edge)])
             kept.append((edge, attempt, rate * allowed))
             if allowed < 1.0:
@@ -401,16 +451,18 @@ class Simulator:
         return rejected_rps
 
     @staticmethod
-    def _pool_limit_rps(component, capacity_rps: float, pool_size: int, queue: float) -> float:
+    def _pool_limit_rps(service_ms: float, capacity_rps: float, pool_size: int, queue: float) -> float:
         """The highest call rate whose in-flight calls fit in the pool.
 
         Little's Law: in-flight calls = rate * latency. Latency itself rises with the rate
         (M/M/1) and with any backlog, so search for the rate where rate * latency = pool_size.
         """
+        if capacity_rps <= 0:
+            return 0.0
 
         def in_flight(rate: float) -> float:
             rho = min(rate / capacity_rps, MAX_UTILIZATION)
-            latency_s = component.service_time_ms / 1000 / (1 - rho) + queue / capacity_rps
+            latency_s = service_ms / 1000 / (1 - rho) + queue / capacity_rps
             return rate * latency_s
 
         low, high = 0.0, 100 * capacity_rps
@@ -491,10 +543,10 @@ class Simulator:
         return total[self.graph.client_id]
 
     @staticmethod
-    def _latency_ms(component, capacity_rps: float, served_rps: float, queue: float) -> float:
+    def _latency_ms(service_ms: float, capacity_rps: float, served_rps: float, queue: float) -> float:
         # M/M/1: as a server gets busier, each request waits longer: S / (1 - rho).
         rho = min(served_rps / capacity_rps, MAX_UTILIZATION)
-        processing_s = (component.service_time_ms / 1000) / (1 - rho)
+        processing_s = (service_ms / 1000) / (1 - rho)
         # Little's Law (L = lambda * W): a backlog of L drained at capacity waits W = L / capacity.
         backlog_wait_s = queue / capacity_rps
         return (processing_s + backlog_wait_s) * 1000

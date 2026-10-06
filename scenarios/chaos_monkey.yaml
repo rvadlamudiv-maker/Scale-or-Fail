@@ -1,0 +1,25 @@
+name: Chaos Monkey
+description: Steady traffic while things break - servers die, the cache is wiped, the database slows down.
+duration_s: 60
+tick_hz: 10
+seed: 42
+traffic:
+  base_rps: 3000
+  noise: 0.05
+goals:
+  availability: 0.999
+  p99_ms: 500
+  budget_per_hour: 1500
+events:
+  - at_s: 10
+    kind: kill_instances
+    target: app
+    count: 5
+  - at_s: 25
+    kind: cache_flush
+    target: cache
+  - at_s: 30
+    kind: slow_down
+    target: db
+    factor: 3
+    duration_s: 15
