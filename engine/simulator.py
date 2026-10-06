@@ -28,6 +28,8 @@ replication lag grows and the reads it serves are stale.
 
 Autoscaling adds instances when load runs above a target utilization, but a new
 instance only starts serving after its warm-up time, so it can arrive late.
+
+Every instance costs money per hour, including instances that are still booting.
 """
 
 from __future__ import annotations
@@ -64,6 +66,7 @@ class NodeTick:
     replication_lag_ms: float = 0.0  # replicas only: how far behind the primary it is
     instances: int = 0  # instances serving traffic this tick
     booting_instances: int = 0  # instances launched but still warming up
+    cost_per_hour: float = 0.0  # (serving + booting instances) * price per instance
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +74,7 @@ class TickSnapshot:
     t: float
     nodes: dict[str, NodeTick]
     end_to_end_ms: float  # latency a user request sees, summed along its path
+    cost_per_hour: float = 0.0  # what the whole design costs to run right now
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +93,7 @@ class NodeSummary:
     peak_replication_lag_ms: float  # replicas only
     avg_instances: float
     peak_instances: int
+    avg_cost_per_hour: float
     overloaded_s: float
 
 
@@ -111,6 +116,14 @@ class SimulationResult:
             if running >= p / 100 * total:
                 return latency
         return weighted[-1][0]
+
+    @property
+    def avg_cost_per_hour(self) -> float:
+        return sum(s.cost_per_hour for s in self.snapshots) / len(self.snapshots)
+
+    @property
+    def peak_cost_per_hour(self) -> float:
+        return max(s.cost_per_hour for s in self.snapshots)
 
     def summary(self) -> dict[str, NodeSummary]:
         dt = 1.0 / self.scenario.tick_hz
@@ -138,6 +151,7 @@ class SimulationResult:
                 peak_replication_lag_ms=max(t.replication_lag_ms for t in ticks),
                 avg_instances=sum(t.instances for t in ticks) / n,
                 peak_instances=max(t.instances for t in ticks),
+                avg_cost_per_hour=sum(t.cost_per_hour for t in ticks) / n,
                 overloaded_s=sum(dt for t in ticks if t.load > 1.0),
             )
         return out
@@ -229,6 +243,7 @@ class Simulator:
             hit_ratio = 0.0
             if component.type is ComponentType.CACHE:
                 hit_ratio = self._update_hit_ratio(node_id, component, demand_rps)
+            booting = sum(count for _, count in self._booting[node_id])
             replication_lag_ms = 0.0
             if component.type is ComponentType.REPLICA:
                 replication_lag_ms = BASE_REPLICATION_LAG_MS + queue / capacity_rps * 1000
@@ -246,7 +261,8 @@ class Simulator:
                 replication_rps=replication_rps,
                 replication_lag_ms=replication_lag_ms,
                 instances=self._instances[node_id],
-                booting_instances=sum(count for _, count in self._booting[node_id]),
+                booting_instances=booting,
+                cost_per_hour=(self._instances[node_id] + booting) * component.hourly_price,
             )
             if component.max_instances is not None:
                 self._autoscale(node_id, component, demand_rps)
@@ -256,7 +272,12 @@ class Simulator:
             self._route(node_id, component.type, served_rps * (1 - hit_ratio) * read_share, inbound, arrivals)
 
         self._tick += 1
-        return TickSnapshot(t=t, nodes=nodes, end_to_end_ms=self._end_to_end_ms(nodes))
+        return TickSnapshot(
+            t=t,
+            nodes=nodes,
+            end_to_end_ms=self._end_to_end_ms(nodes),
+            cost_per_hour=sum(n.cost_per_hour for n in nodes.values()),
+        )
 
     def _capacity_rps(self, node_id: str) -> float:
         component = self.graph.component(node_id)

@@ -88,7 +88,7 @@ def _notes(result: SimulationResult, node_id: str, s) -> str:
 
 def print_summary(result: SimulationResult) -> None:
     table = Table(title="Summary")
-    columns = ("node", "avg in", "peak load", "peak latency", "failed", "retries", "overloaded", "notes")
+    columns = ("node", "avg in", "peak load", "peak latency", "failed", "retries", "overloaded", "cost/hr", "notes")
     for col in columns:
         table.add_column(col, justify="left" if col in ("node", "notes") else "right")
     for node_id, s in result.summary().items():
@@ -101,6 +101,7 @@ def print_summary(result: SimulationResult) -> None:
             f"[{_style_for_rate(failed)}]{failed:.1%}[/]",
             f"{s.retry_share:.0%}",
             f"{s.overloaded_s:.1f}s",
+            f"${_fmt(s.avg_cost_per_hour)}",
             _notes(result, node_id, s),
         )
     console.print(table)
@@ -108,6 +109,10 @@ def print_summary(result: SimulationResult) -> None:
     console.print(
         f"End-to-end latency:  p50 [{_style_for_latency(p50)}]{_fmt(p50)} ms[/]"
         f"   p99 [{_style_for_latency(p99)}]{_fmt(p99)} ms[/]"
+    )
+    console.print(
+        f"Cost:                avg ${_fmt(result.avg_cost_per_hour)}/hr"
+        f"   peak ${_fmt(result.peak_cost_per_hour)}/hr"
     )
 
 

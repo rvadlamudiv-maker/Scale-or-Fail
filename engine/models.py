@@ -37,6 +37,16 @@ DEFAULT_SERVICE_MS: dict[ComponentType, float] = {
     ComponentType.REPLICA: 5,
 }
 
+# What one instance costs to run, in dollars per hour (game prices).
+DEFAULT_PRICE_PER_HOUR: dict[ComponentType, float] = {
+    ComponentType.CLIENT: 0,
+    ComponentType.LOAD_BALANCER: 40,
+    ComponentType.APP_SERVER: 90,
+    ComponentType.DATABASE: 380,
+    ComponentType.CACHE: 120,
+    ComponentType.REPLICA: 260,
+}
+
 # By default a component can queue up to 1 second of work before it drops requests.
 DEFAULT_QUEUE_SECONDS = 1.0
 
@@ -69,6 +79,14 @@ class Component(BaseModel):
     target_utilization: float = Field(default=0.7, gt=0, le=1, description="Scale out to keep load near this.")
     warmup_s: float = Field(default=30, ge=0, description="Seconds before a new instance can serve traffic.")
     scale_in_after_s: float = Field(default=60, ge=0, description="Low load must last this long before scaling in.")
+    price_per_hour: float | None = Field(default=None, ge=0, description="Per-instance price override ($/hour).")
+
+    @property
+    def hourly_price(self) -> float:
+        """What one instance costs per hour."""
+        if self.price_per_hour is not None:
+            return self.price_per_hour
+        return DEFAULT_PRICE_PER_HOUR[self.type]
 
     @model_validator(mode="after")
     def _check_autoscaling(self) -> Component:
