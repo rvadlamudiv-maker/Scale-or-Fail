@@ -1,10 +1,10 @@
 // Turn a design into React Flow nodes and edges, laid out left to right.
 // Designs don't store positions, so each component's column is how many hops it is from the client.
-import { MarkerType, Position, type Edge as FlowEdge, type Node as FlowNode } from '@xyflow/react'
+import { MarkerType, type Edge as FlowEdge, type Node as FlowNode } from '@xyflow/react'
 import type { Component, Design, Edge } from './design'
 
-const COLUMN_WIDTH = 240
-const ROW_HEIGHT = 120
+const COLUMN_WIDTH = 260
+const ROW_HEIGHT = 110
 
 function columns(design: Design): Map<string, number> {
   // Longest path from the client: a component sits one column right of its furthest caller.
@@ -38,10 +38,9 @@ export function toFlow(design: Design): { nodes: FlowNode[]; edges: FlowEdge[] }
     rowsUsed.set(col, row + 1)
     return {
       id: c.id,
+      type: 'component',
       position: { x: col * COLUMN_WIDTH, y: row * ROW_HEIGHT },
-      data: { label: nodeLabel(c), component: c },
-      sourcePosition: Position.Right,
-      targetPosition: Position.Left,
+      data: { component: c },
     }
   })
   const edges: FlowEdge[] = design.edges.map((e) => ({

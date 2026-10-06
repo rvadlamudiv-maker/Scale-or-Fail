@@ -1,6 +1,51 @@
+/* Scale or Fail - an ops console at 3 a.m. Same palette as the previz screens. */
+:root {
+  --ground: #0b0f14; /* the canvas */
+  --panel: #121821; /* boxes and panels */
+  --line: #2a3644; /* borders and idle wires */
+  --text: #e6edf3;
+  --muted: #8b98a5;
+  --healthy: #4cc2ff; /* also the accent */
+  --warning: #f5b841;
+  --critical: #ff5a36;
+
+  --font-ui: 'Space Grotesk', 'Helvetica Neue', sans-serif;
+  --font-data: 'JetBrains Mono', ui-monospace, monospace; /* numbers only */
+
+  color-scheme: dark;
+  background: var(--ground);
+  color: var(--text);
+  font-family: var(--font-ui);
+}
+
 html,
 body,
 #root {
   margin: 0;
   height: 100%;
+}
+
+:focus-visible {
+  outline: 2px solid var(--healthy);
+  outline-offset: 2px;
+}
+
+/* React Flow, restyled for the dark canvas. */
+.react-flow {
+  --xy-background-color: var(--ground);
+  --xy-background-pattern-color: #1f2833;
+  --xy-edge-stroke: var(--line);
+  --xy-edge-stroke-selected: var(--healthy);
+  --xy-edge-label-background-color: var(--ground);
+  --xy-edge-label-color: var(--muted);
+  --xy-controls-button-background-color: var(--panel);
+  --xy-controls-button-background-color-hover: #1a2230;
+  --xy-controls-button-color: var(--text);
+  --xy-controls-button-border-color: var(--line);
+  --xy-attribution-background-color: transparent;
+}
+
+.react-flow__edge-text {
+  font-family: var(--font-data);
+  font-size: 12px;
 }

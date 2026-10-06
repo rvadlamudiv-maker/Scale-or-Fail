@@ -1,0 +1,61 @@
+.component-node {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 184px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text);
+}
+
+.component-node.is-selected {
+  border: 2px solid var(--healthy);
+  padding: 9px 11px; /* keep the size steady when the border thickens */
+}
+
+.component-node__icon {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: var(--healthy);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.component-node__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.component-node__name {
+  font-weight: 700;
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.component-node__kind {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.component-node__count {
+  margin-left: auto;
+  font-family: var(--font-data);
+  font-size: 13px;
+  color: var(--text);
+}
+
+.component-node .react-flow__handle {
+  width: 8px;
+  height: 8px;
+  background: var(--line);
+  border: 2px solid var(--panel);
+}
