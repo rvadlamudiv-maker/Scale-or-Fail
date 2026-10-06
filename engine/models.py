@@ -96,6 +96,9 @@ class Edge(BaseModel):
     retry_budget: float | None = Field(
         default=None, gt=0, le=1, description="Cap retries at this fraction of first attempts (0.1 = 10%)."
     )
+    pool_size: int | None = Field(
+        default=None, ge=1, description="Max open connections from source to target. None = unlimited."
+    )
 
 
 class SystemGraph(BaseModel):

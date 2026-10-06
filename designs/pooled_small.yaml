@@ -1,0 +1,24 @@
+# Client -> LB -> App (4 instances) -> DB
+# Each app request makes 1.5 DB calls on average.
+# App requests give up after waiting 500 ms in the queue.
+# The app talks to the DB through a pool of only 100 connections.
+components:
+  - id: client
+    type: client
+  - id: lb
+    type: load_balancer
+  - id: app
+    type: app_server
+    instances: 4
+    timeout_ms: 500
+  - id: db
+    type: database
+edges:
+  - source: client
+    target: lb
+  - source: lb
+    target: app
+  - source: app
+    target: db
+    calls_per_request: 1.5
+    pool_size: 100

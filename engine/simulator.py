@@ -17,6 +17,10 @@ and an optional retry budget caps retries at a fraction of first attempts.
 
 Caches serve hits themselves and forward only misses downstream. Their hit ratio
 follows a TTL-cache model and warms up gradually after a cold start.
+
+Connection pools limit how many calls can be in flight on an edge at once. By
+Little's Law a pool of N connections carries at most N / latency calls per
+second, so when the target slows down, the pool runs dry and calls are rejected.
 """
 
 from __future__ import annotations
@@ -45,6 +49,7 @@ class NodeTick:
     latency_ms: float  # time a request spends at this node (processing + waiting)
     load: float  # demand / capacity; > 1.0 means overloaded
     hit_ratio: float = 0.0  # caches only: share of requests served from the cache
+    pool_rejected_rps: float = 0.0  # calls that never got a connection to this node
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +161,7 @@ class Simulator:
         nodes: dict[str, NodeTick] = {}
         for node_id in self._order:
             component = self.graph.component(node_id)
+            pool_rejected_rps = self._apply_connection_pools(node_id, arrivals[node_id], inbound)
             demand_rps = inbound[node_id]
             capacity_rps = component.total_capacity_rps
 
@@ -196,12 +202,66 @@ class Simulator:
                 latency_ms=latency_ms,
                 load=load,
                 hit_ratio=hit_ratio,
+                pool_rejected_rps=pool_rejected_rps,
             )
             self._schedule_retries(arrivals[node_id], failed_rps, demand_rps)
             self._route(node_id, component.type, served_rps * (1 - hit_ratio), inbound, arrivals)
 
         self._tick += 1
         return TickSnapshot(t=t, nodes=nodes, end_to_end_ms=self._end_to_end_ms(nodes))
+
+    def _apply_connection_pools(self, node_id: str, arrivals: list[Arrival], inbound) -> float:
+        """Cap each pooled edge into this node at the rate its connections can carry.
+
+        Rejected calls never reach the node; they count as failures (and may be retried).
+        Returns the rejected rate.
+        """
+        component = self.graph.component(node_id)
+        per_edge: defaultdict[int, float] = defaultdict(float)
+        for edge, _, rate in arrivals:
+            per_edge[id(edge)] += rate
+
+        kept: list[Arrival] = []
+        rejected: list[Arrival] = []
+        for edge, attempt, rate in arrivals:
+            if edge.pool_size is None or per_edge[id(edge)] == 0:
+                kept.append((edge, attempt, rate))
+                continue
+            max_rps = self._pool_limit_rps(component, edge.pool_size, self._queues[node_id])
+            allowed = min(1.0, max_rps / per_edge[id(edge)])
+            kept.append((edge, attempt, rate * allowed))
+            if allowed < 1.0:
+                rejected.append((edge, attempt, rate * (1 - allowed)))
+
+        rejected_rps = sum(rate for _, _, rate in rejected)
+        if rejected_rps > 0:
+            arrivals[:] = kept
+            inbound[node_id] -= rejected_rps
+            self._schedule_retries(rejected, rejected_rps, rejected_rps)  # every rejected call failed
+        return rejected_rps
+
+    @staticmethod
+    def _pool_limit_rps(component, pool_size: int, queue: float) -> float:
+        """The highest call rate whose in-flight calls fit in the pool.
+
+        Little's Law: in-flight calls = rate * latency. Latency itself rises with the rate
+        (M/M/1) and with any backlog, so search for the rate where rate * latency = pool_size.
+        """
+        capacity_rps = component.total_capacity_rps
+
+        def in_flight(rate: float) -> float:
+            rho = min(rate / capacity_rps, MAX_UTILIZATION)
+            latency_s = component.service_time_ms / 1000 / (1 - rho) + queue / capacity_rps
+            return rate * latency_s
+
+        low, high = 0.0, 100 * capacity_rps
+        for _ in range(60):  # binary search: in_flight() only grows with the rate
+            mid = (low + high) / 2
+            if in_flight(mid) <= pool_size:
+                low = mid
+            else:
+                high = mid
+        return low
 
     def _schedule_retries(self, arrivals: list[Arrival], failed_rps: float, demand_rps: float) -> None:
         """Each caller's share of this tick's failures comes back later, if it has retries left."""
