@@ -71,6 +71,16 @@ class Goals(BaseModel):
     )
 
 
+class Incident(BaseModel):
+    """The real, publicly documented outage a scenario is inspired by."""
+
+    title: str
+    date: str
+    postmortem_url: str
+    summary: str = Field(description="What happened, in our own words.")
+    real_fixes: list[str] = Field(default_factory=list, description="What the real engineers did.")
+
+
 class Scenario(BaseModel):
     name: str
     description: str = ""
@@ -80,3 +90,4 @@ class Scenario(BaseModel):
     traffic: TrafficProfile
     goals: Goals = Field(default_factory=Goals)
     events: list[ChaosEvent] = Field(default_factory=list)
+    incident: Incident | None = None

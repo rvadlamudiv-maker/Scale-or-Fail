@@ -138,6 +138,25 @@ def print_score(result: SimulationResult) -> None:
     console.print(f"Grade: [{GRADE_STYLE[card.grade]}]{card.grade}[/]")
 
 
+def print_incident_brief(scenario) -> None:
+    incident = scenario.incident
+    if incident is None:
+        return
+    console.print(f"[bold]Inspired by:[/] {incident.title} ({incident.date})")
+    console.print(f"[dim]{incident.summary}[/]")
+    console.print("[dim]A simplified recreation based on the public postmortem. Not affiliated with the company.[/]\n")
+
+
+def print_real_fixes(scenario) -> None:
+    incident = scenario.incident
+    if incident is None:
+        return
+    console.print("\n[bold]What the real engineers did:[/]")
+    for fix in incident.real_fixes:
+        console.print(f"  - {fix}")
+    console.print(f"[dim]Read the postmortem: {incident.postmortem_url}[/]")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="sof", description="Scale or Fail simulation engine")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -156,10 +175,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     console.print(f"[bold]Scenario:[/] {scenario.name}  [dim]{scenario.description}[/]")
+    print_incident_brief(scenario)
     result = Simulator(design, scenario, seed=args.seed).run()
     print_timeline(result, args.every)
     print_summary(result)
     print_score(result)
+    print_real_fixes(scenario)
     return 0
 
 

@@ -1,0 +1,36 @@
+# The Retry Storm - a design that survives.
+# 1. Headroom: a 4th network device absorbs the surge (8,000 rps of capacity for 7,500 rps).
+# 2. Callers back off (exponential + jitter) and never retry more than 10% of first attempts.
+# 3. The network sheds requests that waited 300 ms instead of finishing them for nobody.
+components:
+  - id: client
+    type: client
+  - id: lb
+    type: load_balancer
+  - id: services
+    type: app_server
+    instances: 8
+  - id: network
+    type: app_server
+    instances: 4
+    capacity_rps: 2000
+    service_ms: 2
+    timeout_ms: 300
+  - id: internal
+    type: database
+    instances: 2
+edges:
+  - source: client
+    target: lb
+  - source: lb
+    target: services
+  - source: services
+    target: network
+    caller_timeout_ms: 1000
+    retries: 3
+    retry_delay_ms: 200
+    backoff: exponential
+    jitter: true
+    retry_budget: 0.1
+  - source: network
+    target: internal

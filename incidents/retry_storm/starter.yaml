@@ -1,0 +1,31 @@
+# The Retry Storm - starting design.
+# Services call internal systems (DNS, auth, monitoring) through a set of network devices.
+# Callers give up after 1 s and retry 3 times with no backoff; the devices finish every request anyway.
+components:
+  - id: client
+    type: client
+  - id: lb
+    type: load_balancer
+  - id: services
+    type: app_server
+    instances: 8
+  - id: network
+    type: app_server
+    instances: 3
+    capacity_rps: 2000
+    service_ms: 2
+  - id: internal
+    type: database
+    instances: 2
+edges:
+  - source: client
+    target: lb
+  - source: lb
+    target: services
+  - source: services
+    target: network
+    caller_timeout_ms: 1000
+    retries: 3
+    retry_delay_ms: 200
+  - source: network
+    target: internal

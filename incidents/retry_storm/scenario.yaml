@@ -1,0 +1,32 @@
+name: The Retry Storm
+description: A burst of connection activity swamps the network devices between two networks - and the retries keep them swamped.
+duration_s: 60
+tick_hz: 10
+seed: 42
+traffic:
+  base_rps: 3000
+  noise: 0.05
+  spikes:
+    # The trigger: an automated scaling job makes thousands of clients reconnect at once.
+    - at_s: 10
+      duration_s: 10
+      multiplier: 2.5
+goals:
+  availability: 0.999
+  p99_ms: 500
+  budget_per_hour: 2000
+incident:
+  title: AWS us-east-1 networking event
+  date: "2021-12-07"
+  postmortem_url: https://aws.amazon.com/message/12721/
+  summary: >-
+    An automated job scaling one AWS service set off unexpected behavior in a large number of
+    clients on AWS's internal network. The surge of connections overwhelmed the network devices
+    linking the internal network to the main one. Slower responses led to more connection attempts
+    and retries, which kept the devices congested for hours: a latent bug stopped clients from
+    backing off as designed, and the congestion also blinded the monitoring operators relied on.
+  real_fixes:
+    - Turned off the automated scaling activity that triggered the surge.
+    - Fixed the latent bug that kept clients from backing off.
+    - Added network configuration that protects the devices from similar congestion.
+    - During the event, moved internal DNS traffic off the congested path, isolated the top traffic sources, and brought extra network capacity online.
