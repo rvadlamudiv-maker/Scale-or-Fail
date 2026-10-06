@@ -342,7 +342,9 @@ class Simulator:
                 stale_rps=stale_rps,
                 instances=self._instances[node_id],
                 booting_instances=booting,
-                cost_per_hour=(self._instances[node_id] + booting) * component.hourly_price,
+                # You keep paying for the fleet you provisioned: instances that die are replaced
+                # (or still billed), so the bill never drops below the configured `instances`.
+                cost_per_hour=max(self._instances[node_id] + booting, component.instances) * component.hourly_price,
             )
             if component.max_instances is not None:
                 self._autoscale(node_id, component, demand_rps)

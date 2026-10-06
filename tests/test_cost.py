@@ -55,3 +55,23 @@ def test_scaling_out_raises_the_bill():
     result = Simulator(graph, make_scenario(base_rps=6000)).run()
     assert result.snapshots[0].cost_per_hour == pytest.approx(4 * 90)  # starts with 4 instances
     assert result.peak_cost_per_hour == pytest.approx(9 * 90)  # ceil(6000 / (1000 * 0.7)) = 9
+
+
+def test_dead_instances_do_not_lower_the_bill():
+    # Killing 3 of 4 servers must not make the design cheaper: you pay for the fleet you provisioned.
+    from engine.scenario import Scenario
+
+    graph = SystemGraph.model_validate({
+        "components": [
+            {"id": "client", "type": "client"},
+            {"id": "app", "type": "app_server", "instances": 4},
+        ],
+        "edges": [{"source": "client", "target": "app"}],
+    })
+    scenario = Scenario.model_validate({
+        "name": "kill", "duration_s": 5, "traffic": {"base_rps": 1000},
+        "events": [{"at_s": 1, "kind": "kill_instances", "target": "app", "count": 3}],
+    })
+    result = Simulator(graph, scenario).run()
+    assert result.snapshots[-1].nodes["app"].instances == 1
+    assert result.snapshots[-1].cost_per_hour == pytest.approx(4 * 90)
