@@ -1,0 +1,91 @@
+.settings {
+  width: 280px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--line);
+  background: var(--ground);
+}
+
+.settings__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings__title {
+  margin: 0 0 4px;
+  font-size: 17px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.settings__note {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.settings__field {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.settings__field input[type='number'],
+.settings__field select {
+  width: 120px;
+  box-sizing: border-box;
+  font: inherit;
+  font-family: var(--font-data);
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+.settings__field input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--healthy);
+}
+
+.settings__footer {
+  padding: 16px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings__problem {
+  margin: 0;
+  font-size: 13px;
+  color: var(--warning);
+}
+
+.settings__footer button {
+  font: inherit;
+  font-weight: 700;
+  padding: 10px;
+  border: none;
+  border-radius: 10px;
+  background: var(--healthy);
+  color: var(--ground);
+  cursor: pointer;
+}
+
+.settings__footer button:disabled {
+  background: var(--line);
+  color: var(--muted);
+  cursor: not-allowed;
+}

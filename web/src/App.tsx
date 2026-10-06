@@ -19,6 +19,7 @@ import { designOptions, parseDesign, type Component, type ComponentType } from '
 import { connectionProblem, nextId } from './graph'
 import { toFlow } from './layout'
 import { DRAG_FORMAT, Palette, PALETTE } from './Palette'
+import { SettingsPanel } from './SettingsPanel'
 
 // Tell React Flow to draw nodes of type 'component' with our own component.
 const nodeTypes = { component: ComponentNode }
@@ -102,6 +103,7 @@ function Editor({ initial }: { initial: { nodes: FlowNode[]; edges: FlowEdge[] }
           </div>
         )}
       </div>
+      <SettingsPanel nodes={nodes} edges={edges} setNodes={setNodes} setEdges={setEdges} />
     </div>
   )
 }
