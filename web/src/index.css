@@ -369,3 +369,10 @@ body,
   background: #3a140c;
   font-size: 13px;
 }
+
+/* Request dots on wires during a replay */
+@media (prefers-reduced-motion: reduce) {
+  .traffic-edge__dot {
+    display: none;
+  }
+}

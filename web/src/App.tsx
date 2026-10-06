@@ -2,7 +2,6 @@ import {
   addEdge,
   Background,
   Controls,
-  MarkerType,
   ReactFlow,
   ReactFlowProvider,
   useEdgesState,
@@ -22,15 +21,17 @@ import { designProblems, toDesign } from './exportDesign'
 import { ResultsPanel } from './ResultsPanel'
 import { RunBar } from './RunBar'
 import { connectionProblem, nextId } from './graph'
-import { toFlow } from './layout'
+import { ARROW, toFlow } from './layout'
 import { DRAG_FORMAT, Palette, PALETTE } from './Palette'
 import { SettingsPanel } from './SettingsPanel'
 import { LiveContext } from './live'
 import { Playback } from './Playback'
 import { useReplay } from './useReplay'
+import { TrafficEdge } from './TrafficEdge'
 
 // Tell React Flow to draw nodes of type 'component' with our own component.
 const nodeTypes = { component: ComponentNode }
+const edgeTypes = { traffic: TrafficEdge }
 
 function Editor({ initial, initialScenario }: { initial: { nodes: FlowNode[]; edges: FlowEdge[] }; initialScenario: string }) {
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes)
@@ -72,8 +73,9 @@ function Editor({ initial, initialScenario }: { initial: { nodes: FlowNode[]; ed
           {
             ...c,
             id: `${c.source}->${c.target}`,
+            type: 'traffic',
             animated: true,
-            markerEnd: { type: MarkerType.ArrowClosed },
+            markerEnd: ARROW,
             data: { edge: { source: c.source, target: c.target } },
           },
           current,
@@ -116,6 +118,7 @@ function Editor({ initial, initialScenario }: { initial: { nodes: FlowNode[]; ed
         <LiveContext.Provider value={frame ? { nodes: frame.nodes } : null}>
           <ReactFlow
             nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
             nodes={nodes}
             edges={edges}
             onNodesChange={onNodesChange}

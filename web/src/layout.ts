@@ -3,8 +3,11 @@
 import { MarkerType, type Edge as FlowEdge, type Node as FlowNode } from '@xyflow/react'
 import type { Component, Design, Edge } from './design'
 
-const COLUMN_WIDTH = 260
+const COLUMN_WIDTH = 320
 const ROW_HEIGHT = 110
+
+// A small arrowhead in canvas pixels, so it stays the same size however thick the wire gets.
+export const ARROW = { type: MarkerType.ArrowClosed, width: 14, height: 14, markerUnits: 'userSpaceOnUse', color: '#5a6878' } as const
 
 function columns(design: Design): Map<string, number> {
   // Longest path from the client: a component sits one column right of its furthest caller.
@@ -45,11 +48,12 @@ export function toFlow(design: Design): { nodes: FlowNode[]; edges: FlowEdge[] }
   })
   const edges: FlowEdge[] = design.edges.map((e) => ({
     id: `${e.source}->${e.target}`,
+    type: 'traffic',
     source: e.source,
     target: e.target,
     label: edgeLabel(e),
     animated: true,
-    markerEnd: { type: MarkerType.ArrowClosed },
+    markerEnd: ARROW,
     data: { edge: e },
   }))
   return { nodes, edges }
