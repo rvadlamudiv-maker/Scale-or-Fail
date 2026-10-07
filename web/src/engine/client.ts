@@ -15,6 +15,15 @@ export type RunResult =
   | {
       ok: true
       scenario: string
+      client_id: string
+      goals: { availability: number; p99_ms: number }
+      incident: {
+        title: string
+        date: string
+        postmortem_url: string
+        summary: string
+        real_fixes: string[]
+      } | null
       score: { total: number; grade: string; lines: ScoreLine[] }
       metrics: {
         availability: number

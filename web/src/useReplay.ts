@@ -35,11 +35,18 @@ export function useReplay(tickCount: number, secondsPerTick: number, runId: numb
     return () => cancelAnimationFrame(frame)
   }, [playing, speed, tickCount, secondsPerTick])
 
+  // Jump to any tick (the scrubber). Dragging pauses the replay.
+  const seek = (tick: number) => {
+    position.current = Math.max(0, Math.min(tickCount - 1, tick))
+    setIndex(Math.floor(position.current))
+    setPlaying(false)
+  }
+
   const skipToEnd = () => {
     position.current = tickCount - 1
     setIndex(tickCount - 1)
     setPlaying(false)
   }
 
-  return { index, playing, setPlaying, speed, setSpeed, skipToEnd, done: index >= tickCount - 1 }
+  return { index, playing, setPlaying, speed, setSpeed, seek, skipToEnd, done: index >= tickCount - 1 }
 }

@@ -28,6 +28,7 @@ import { LiveContext } from './live'
 import { Playback } from './Playback'
 import { useReplay } from './useReplay'
 import { TrafficEdge } from './TrafficEdge'
+import { Timeline } from './Timeline'
 
 // Tell React Flow to draw nodes of type 'component' with our own component.
 const nodeTypes = { component: ComponentNode }
@@ -151,6 +152,7 @@ function Editor({ initial, initialScenario }: { initial: { nodes: FlowNode[]; ed
             onSkip={replay.skipToEnd}
           />
         )}
+        {result?.ok && frame && <Timeline run={result} index={replay.index} onSeek={replay.seek} />}
         {result && (!result.ok || replay.done) && <ResultsPanel result={result} onClose={() => setResult(null)} />}
         {problem && (
           <div className="editor__problem" role="status">

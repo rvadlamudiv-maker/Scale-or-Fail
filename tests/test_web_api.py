@@ -17,6 +17,8 @@ def test_runs_a_design_and_returns_the_score_and_timeline():
     assert out["metrics"]["availability"] > 0.999
     assert len(out["ticks"]) == 600  # 60 s at 10 ticks per second
     assert set(out["ticks"][0]["nodes"]) == {"client", "lb", "app", "cache", "db"}
+    assert out["client_id"] == "client"
+    assert out["goals"] == {"availability": 0.999, "p99_ms": 500}
 
 
 def test_reports_chaos_events():
@@ -29,3 +31,11 @@ def test_a_broken_design_returns_an_error_instead_of_crashing():
     out = json.loads(run(broken, read("scenarios/url_shortener.yaml")))
     assert out["ok"] is False
     assert "exactly one client" in out["error"]
+
+
+def test_incident_scenarios_include_the_real_story():
+    out = json.loads(run(read("incidents/retry_storm/starter.yaml"), read("incidents/retry_storm/scenario.yaml")))
+    assert out["incident"]["postmortem_url"] == "https://aws.amazon.com/message/12721/"
+    assert len(out["incident"]["real_fixes"]) == 4
+    practice = json.loads(run(read("designs/solid.yaml"), read("scenarios/url_shortener.yaml")))
+    assert practice["incident"] is None

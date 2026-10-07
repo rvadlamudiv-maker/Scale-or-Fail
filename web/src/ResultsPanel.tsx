@@ -14,7 +14,7 @@ export function ResultsPanel({ result, onClose }: { result: RunResult; onClose: 
       </section>
     )
   }
-  const { score, metrics, events } = result
+  const { score, metrics, events, incident } = result
   return (
     <section className="results" aria-label="Results">
       <div className={`results__grade results__grade--${score.grade}`}>{score.grade}</div>
@@ -47,6 +47,23 @@ export function ResultsPanel({ result, onClose }: { result: RunResult; onClose: 
               </li>
             ))}
         </ul>
+        {incident && (
+          <div className="results__debrief">
+            <h3>What the real engineers did</h3>
+            <ul>
+              {incident.real_fixes.map((fix) => (
+                <li key={fix}>{fix}</li>
+              ))}
+            </ul>
+            <p>
+              Inspired by the {incident.title} ({incident.date}).{' '}
+              <a href={incident.postmortem_url} target="_blank" rel="noopener noreferrer">
+                Read the public postmortem
+              </a>
+              . A simplified recreation, not affiliated with the company.
+            </p>
+          </div>
+        )}
         {events.length > 0 && (
           <ul className="results__events">
             {events.map((e) => (

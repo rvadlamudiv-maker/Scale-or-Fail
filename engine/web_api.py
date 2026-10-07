@@ -30,6 +30,9 @@ def run(design_yaml: str, scenario_yaml: str) -> str:
     payload = {
         "ok": True,
         "scenario": scenario.name,
+        "client_id": result.client_id,
+        "goals": {"availability": scenario.goals.availability, "p99_ms": scenario.goals.p99_ms},
+        "incident": scenario.incident.model_dump() if scenario.incident else None,
         "score": {
             "total": card.total,
             "grade": card.grade,
