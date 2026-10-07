@@ -10,4 +10,7 @@ export default defineConfig({
   },
   // The engine worker loads Pyodide with a dynamic import, which needs an ES module worker.
   worker: { format: 'es' },
+  // One screen that needs React Flow and the YAML parser up front, so one bundle is fine.
+  // (Pyodide itself loads separately, in the background, from its CDN.)
+  build: { chunkSizeWarningLimit: 800 },
 })

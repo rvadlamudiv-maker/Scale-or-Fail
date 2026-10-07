@@ -48,6 +48,7 @@ function Editor({ initial, initialScenario, daily }: EditorProps) {
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<RunResult | null>(null)
   const [runId, setRunId] = useState(0)
+  const [ranDesign, setRanDesign] = useState('') // the design (as YAML) behind the current result
   const design = toDesign(nodes, edges)
 
   // Daily Outage: today's result, if this browser already played.
@@ -56,8 +57,10 @@ function Editor({ initial, initialScenario, daily }: EditorProps) {
 
   const run = async () => {
     const scenarioYaml = daily ? daily.scenarioYaml : scenarioOptions.find((s) => s.label === scenario)!.yaml
+    const designYaml = stringify(design)
+    setRanDesign(designYaml)
     setRunning(true)
-    const outcome = await runSimulation(stringify(design), scenarioYaml)
+    const outcome = await runSimulation(designYaml, scenarioYaml)
     setResult(outcome)
     setRunId((id) => id + 1)
     setRunning(false)
@@ -142,6 +145,7 @@ function Editor({ initial, initialScenario, daily }: EditorProps) {
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             fitView
+            fitViewOptions={{ padding: 0.15 }}
           >
             <Background />
             <Controls />
@@ -170,7 +174,7 @@ function Editor({ initial, initialScenario, daily }: EditorProps) {
           />
         )}
         {result?.ok && frame && <Timeline run={result} index={replay.index} onSeek={replay.seek} />}
-        {result && (!result.ok || replay.done) && <ResultsPanel result={result} onClose={() => setResult(null)} />}
+        {result && (!result.ok || replay.done) && <ResultsPanel result={result} onClose={() => setResult(null)} stale={stringify(design) !== ranDesign} />}
         {daily && record && shareOpen && (!result || replay.done) && (
           <ShareCard record={record} nextNumber={daily.number + 1} onClose={() => setShareOpen(false)} />
         )}
@@ -185,9 +189,13 @@ function Editor({ initial, initialScenario, daily }: EditorProps) {
   )
 }
 
+// Where today's incident starter sits in the "Start from" list.
+const starterIndex = (d: Daily) => designOptions.findIndex((o) => o.label === `Incident: ${d.incident} (starter)`)
+
 export default function App() {
-  const [selected, setSelected] = useState(0)
-  const [daily, setDaily] = useState<Daily | null>(null)
+  // Open straight into today's Daily Outage: the first thing anyone sees is a puzzle to solve.
+  const [selected, setSelected] = useState(() => starterIndex(todaysDaily()))
+  const [daily, setDaily] = useState<Daily | null>(() => todaysDaily())
   const [touring, setTouring] = useState(() => !tutorialSeen()) // first visit: show the walkthrough
 
   const toggleDaily = () => {
@@ -196,13 +204,17 @@ export default function App() {
       return
     }
     const today = todaysDaily()
-    setSelected(designOptions.findIndex((o) => o.label === `Incident: ${today.incident} (starter)`))
+    setSelected(starterIndex(today))
     setDaily(today)
   }
   const initial = toFlow(parseDesign(designOptions[selected].yaml))
 
   return (
     <div className="app">
+      <div className="app__small-screen" role="alert">
+        <h1>Scale or Fail</h1>
+        <p>This game is built for a laptop or desktop screen. Open it on a bigger screen to play.</p>
+      </div>
       <header className="app__header">
         <span className="app__title">Scale or Fail</span>
         <button type="button" className={`app__daily${daily ? ' is-active' : ''}`} onClick={toggleDaily}>

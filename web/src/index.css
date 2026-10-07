@@ -716,3 +716,68 @@ body,
     transition: none;
   }
 }
+
+/* Results card: compact by default, details on demand, dimmed when out of date */
+.results:not(.is-expanded) .results__grade {
+  width: 56px;
+  height: 56px;
+  font-size: 34px;
+  border-radius: 12px;
+}
+
+.results:not(.is-expanded) {
+  align-items: center;
+}
+
+.results__toggle {
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.results.is-stale .results__grade,
+.results.is-stale .results__headline b {
+  opacity: 0.45;
+}
+
+.results__stale {
+  margin: 0;
+  font-size: 13px;
+  color: var(--warning);
+}
+
+/* Small screens */
+.app__small-screen {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .app__small-screen {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 12px;
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    padding: 32px;
+    background: var(--ground);
+  }
+
+  .app__small-screen h1 {
+    margin: 0;
+    font-size: 28px;
+  }
+
+  .app__small-screen p {
+    margin: 0;
+    font-size: 16px;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+}
