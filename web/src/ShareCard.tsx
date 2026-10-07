@@ -42,7 +42,8 @@ function drawImage(r: DailyRecord): string {
 
 export function ShareCard({ record, nextNumber, onClose }: { record: DailyRecord; nextNumber: number; onClose: () => void }) {
   const [copied, setCopied] = useState(false)
-  const url = window.location.origin
+  // Always share the official address, however the player reached the site.
+  const url = 'https://scale-or-fail.pages.dev'
 
   const copy = async () => {
     try {
