@@ -625,3 +625,94 @@ body,
   font-size: 13px;
   color: var(--muted);
 }
+
+/* How to play + first-visit tour */
+.app__help {
+  margin-left: auto;
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.tour {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+}
+
+.tour__spotlight {
+  position: fixed;
+  border: 2px solid var(--healthy);
+  border-radius: 14px;
+  box-shadow: 0 0 0 9999px rgba(5, 8, 12, 0.72); /* dims everything except the highlighted part */
+  pointer-events: none;
+  transition: all 0.25s ease;
+}
+
+.tour__card {
+  position: fixed;
+  box-sizing: border-box;
+  padding: 18px 20px;
+  background: var(--panel);
+  border: 1px solid var(--healthy);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tour__card h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.tour__card p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.tour__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.tour__count {
+  margin-right: auto;
+  font-family: var(--font-data);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tour__actions button {
+  font: inherit;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: none;
+  background: var(--healthy);
+  color: var(--ground);
+  cursor: pointer;
+}
+
+.tour__actions .tour__skip,
+.tour__actions .tour__back {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour__spotlight {
+    transition: none;
+  }
+}

@@ -31,6 +31,7 @@ import { TrafficEdge } from './TrafficEdge'
 import { Timeline } from './Timeline'
 import { loadDaily, recordFrom, saveDaily, todaysDaily, type Daily } from './daily'
 import { ShareCard } from './ShareCard'
+import { Tour, tutorialSeen } from './Tour'
 
 // Tell React Flow to draw nodes of type 'component' with our own component.
 const nodeTypes = { component: ComponentNode }
@@ -187,6 +188,7 @@ function Editor({ initial, initialScenario, daily }: EditorProps) {
 export default function App() {
   const [selected, setSelected] = useState(0)
   const [daily, setDaily] = useState<Daily | null>(null)
+  const [touring, setTouring] = useState(() => !tutorialSeen()) // first visit: show the walkthrough
 
   const toggleDaily = () => {
     if (daily) {
@@ -216,11 +218,15 @@ export default function App() {
             ))}
           </select>
         </label>
+        <button type="button" className="app__help" onClick={() => setTouring(true)}>
+          How to play
+        </button>
       </header>
       {/* key={selected} gives each design a fresh editor */}
       <ReactFlowProvider key={`${selected}-${daily ? 'daily' : 'free'}`}>
         <Editor initial={initial} initialScenario={designOptions[selected].scenario ?? DEFAULT_SCENARIO} daily={daily} />
       </ReactFlowProvider>
+      {touring && <Tour onClose={() => setTouring(false)} />}
     </div>
   )
 }
