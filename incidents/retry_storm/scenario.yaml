@@ -1,5 +1,6 @@
 name: The Retry Storm
 description: A burst of connection activity swamps the network devices between two networks - and the retries keep them swamped.
+hint: "Look at how services call the network: what do the retries do when the network is already slow? And how much headroom does the network have?"
 duration_s: 60
 tick_hz: 10
 seed: 42

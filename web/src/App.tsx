@@ -32,6 +32,7 @@ import { Timeline } from './Timeline'
 import { loadDaily, recordFrom, saveDaily, todaysDaily, type Daily } from './daily'
 import { ShareCard } from './ShareCard'
 import { Tour, tutorialSeen } from './Tour'
+import { Brief } from './Brief'
 
 // Tell React Flow to draw nodes of type 'component' with our own component.
 const nodeTypes = { component: ComponentNode }
@@ -54,9 +55,13 @@ function Editor({ initial, initialScenario, daily }: EditorProps) {
   // Daily Outage: today's result, if this browser already played.
   const [record, setRecord] = useState(() => (daily ? loadDaily(daily.key) : null))
   const [shareOpen, setShareOpen] = useState(true)
+  // The mission brief opens with every new scenario (unless today's daily is already played).
+  const [briefOpen, setBriefOpen] = useState(() => !record)
+  const scenarioYamlNow = daily ? daily.scenarioYaml : scenarioOptions.find((s) => s.label === scenario)!.yaml
 
   const run = async () => {
     const scenarioYaml = daily ? daily.scenarioYaml : scenarioOptions.find((s) => s.label === scenario)!.yaml
+    setBriefOpen(false)
     const designYaml = stringify(design)
     setRanDesign(designYaml)
     setRunning(true)
@@ -153,7 +158,11 @@ function Editor({ initial, initialScenario, daily }: EditorProps) {
         </LiveContext.Provider>
         <RunBar
           scenario={scenario}
-          onScenarioChange={setScenario}
+          onScenarioChange={(label) => {
+            setScenario(label)
+            setBriefOpen(true)
+          }}
+          onBrief={() => setBriefOpen(true)}
           onRun={run}
           running={running}
           canRun={designProblems(design).length === 0}
@@ -175,6 +184,13 @@ function Editor({ initial, initialScenario, daily }: EditorProps) {
         )}
         {result?.ok && frame && <Timeline run={result} index={replay.index} onSeek={replay.seek} />}
         {result && (!result.ok || replay.done) && <ResultsPanel result={result} onClose={() => setResult(null)} stale={stringify(design) !== ranDesign} />}
+        {briefOpen && (
+          <Brief
+            scenarioYaml={scenarioYamlNow}
+            eyebrow={daily ? `Daily Outage #${daily.number}` : scenario.startsWith('Incident') ? 'Real-outage incident' : 'Practice scenario'}
+            onClose={() => setBriefOpen(false)}
+          />
+        )}
         {daily && record && shareOpen && (!result || replay.done) && (
           <ShareCard record={record} nextNumber={daily.number + 1} onClose={() => setShareOpen(false)} />
         )}

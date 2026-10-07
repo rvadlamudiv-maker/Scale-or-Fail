@@ -1,5 +1,6 @@
 name: Traffic Blip
 description: A half-second burst of 3x traffic, then back to normal.
+hint: "The burst lasts half a second. A short queue can absorb it, as long as requests don't wait too long."
 duration_s: 20
 tick_hz: 10
 seed: 42

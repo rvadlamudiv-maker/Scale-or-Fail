@@ -1,5 +1,6 @@
 name: The Bad Regex
 description: A routine firewall rule update ships everywhere in seconds - and one regular expression pins every edge server's CPU.
+hint: "Look at how changes reach the edge servers, and whether one slow request can take over a whole server."
 duration_s: 60
 tick_hz: 10
 seed: 42

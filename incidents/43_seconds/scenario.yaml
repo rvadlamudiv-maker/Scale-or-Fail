@@ -1,5 +1,6 @@
 name: 43 Seconds
 description: A 43-second network blip during routine maintenance - and failover automation turns it into a day-long problem.
+hint: "The apps never lose the database. Look at what the database's failover automation is allowed to do."
 duration_s: 120
 tick_hz: 10
 seed: 42

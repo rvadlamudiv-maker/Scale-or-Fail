@@ -10,9 +10,10 @@ type Props = {
   running: boolean
   canRun: boolean
   daily?: { label: string; played: boolean } // Daily Outage: fixed scenario, one attempt
+  onBrief: () => void // reopen the mission brief
 }
 
-export function RunBar({ scenario, onScenarioChange, onRun, running, canRun, daily }: Props) {
+export function RunBar({ scenario, onScenarioChange, onRun, running, canRun, daily, onBrief }: Props) {
   const [status, setStatus] = useState(engineStatus())
   useEffect(() => onEngineStatus(setStatus), [])
   const ready = status === 'ready'
@@ -33,6 +34,9 @@ export function RunBar({ scenario, onScenarioChange, onRun, running, canRun, dai
         </select>
       </label>
       )}
+      <button type="button" className="run-bar__brief" onClick={onBrief}>
+        Brief
+      </button>
       <button type="button" onClick={onRun} disabled={!ready || running || !canRun || Boolean(daily?.played)}>
         {running ? 'Running…' : daily ? (daily.played ? 'Played today' : 'Submit ▶ (1 try)') : 'Run ▶'}
       </button>

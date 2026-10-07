@@ -47,3 +47,10 @@ def test_an_unquoted_incident_date_still_loads():
     out = json.loads(run(read("incidents/43_seconds/solution.yaml"), scenario))
     assert out["ok"] is True
     assert out["incident"]["date"] == "2018-10-21"
+
+
+def test_every_scenario_has_a_hint():
+    from engine.loader import load_scenario
+
+    for path in sorted(ROOT.glob("scenarios/*.yaml")) + sorted(ROOT.glob("incidents/*/scenario.yaml")):
+        assert load_scenario(path).hint, f"{path} has no hint"

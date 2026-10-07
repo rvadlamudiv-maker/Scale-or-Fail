@@ -1,5 +1,6 @@
 name: Chaos Monkey
 description: Steady traffic while things break - servers die, the cache is wiped, the database slows down.
+hint: "Servers will die and the cache will be wiped. Can your app tier replace servers by itself, and can the database survive a cold cache?"
 duration_s: 60
 tick_hz: 10
 seed: 42

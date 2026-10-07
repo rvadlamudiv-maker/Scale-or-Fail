@@ -1,5 +1,6 @@
 name: Monday After the Holidays
 description: The quietest week of the year ends overnight. Traffic triples, clients arrive with cold caches - and the network hub can't scale fast enough.
+hint: "The network hub can autoscale, but how long does it take to add capacity? You know Monday is coming."
 duration_s: 90
 tick_hz: 10
 seed: 42

@@ -1,5 +1,6 @@
 name: URL Shortener
 description: Steady read traffic, then a link goes viral at t=20s.
+hint: "Which tier runs out of capacity first when the link goes viral? Fix it, then watch where the bottleneck moves."
 duration_s: 60
 tick_hz: 10
 seed: 42

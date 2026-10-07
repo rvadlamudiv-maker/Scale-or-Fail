@@ -781,3 +781,122 @@ body,
     color: var(--muted);
   }
 }
+
+/* Mission brief: what will happen and the targets, before you build */
+.brief {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 6;
+  width: min(400px, calc(100% - 24px));
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 18px 20px;
+  background: var(--panel);
+  border: 1px solid var(--healthy);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.brief__eyebrow {
+  margin: 0;
+  font-family: var(--font-data);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.brief__title {
+  margin: 0;
+  font-size: 22px;
+}
+
+.brief__description,
+.brief__note {
+  margin: 0;
+}
+
+.brief__inspired,
+.brief__note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.brief h3 {
+  margin: 6px 0 0;
+  font-size: 14px;
+}
+
+.brief__timeline,
+.brief__goals {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.brief__timeline li {
+  padding: 2px 0;
+  color: var(--muted);
+}
+
+.brief__timeline span {
+  display: inline-block;
+  min-width: 44px;
+  font-family: var(--font-data);
+  color: var(--text);
+}
+
+.brief__goals li {
+  padding: 2px 0;
+  color: var(--muted);
+}
+
+.brief__goals b {
+  font-family: var(--font-data);
+  color: var(--text);
+}
+
+.brief__hint {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--warning);
+  color: var(--text);
+}
+
+.brief__hint-button {
+  align-self: flex-start;
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.brief__start {
+  margin-top: 6px;
+  font: inherit;
+  font-weight: 700;
+  padding: 10px;
+  border: none;
+  border-radius: 10px;
+  background: var(--healthy);
+  color: var(--ground);
+  cursor: pointer;
+}
+
+.run-bar .run-bar__brief {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--text);
+}

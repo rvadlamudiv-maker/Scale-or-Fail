@@ -105,3 +105,4 @@ class Scenario(BaseModel):
     goals: Goals = Field(default_factory=Goals)
     events: list[ChaosEvent] = Field(default_factory=list)
     incident: Incident | None = None
+    hint: str | None = Field(default=None, description="A nudge for stuck players, without the answer.")

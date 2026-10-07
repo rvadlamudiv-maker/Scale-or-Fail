@@ -1,5 +1,6 @@
 name: Black Friday
 description: The one outage you can see coming. Traffic climbs all morning, then the doorbuster sale doubles it again - and you get to plan for it.
+hint: "You know exactly when the spike comes. How many servers are ready before doors open, and where do all the product-page reads go?"
 duration_s: 90
 tick_hz: 10
 seed: 42
