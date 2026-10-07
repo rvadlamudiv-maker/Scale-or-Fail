@@ -1,5 +1,5 @@
 // The Daily Outage: one incident a day, the same for everyone, one attempt, a shareable result.
-import { parse, stringify } from 'yaml'
+import { parse } from 'yaml'
 import { scenarioOptions } from './design'
 import type { RunResult } from './engine/client'
 
@@ -32,14 +32,17 @@ export function todaysDaily(): Daily {
   const number = Math.max(1, dailyNumber(key))
   const option = incidents[(number - 1) % incidents.length]
   // Same traffic for everyone today, different traffic tomorrow: the day number is the seed.
-  const scenario = parse(option.yaml)
-  scenario.seed = number
+  // Only the seed line changes. (Re-writing the whole YAML can drop quotes, e.g. around dates.)
+  const seedLine = /^seed:.*$/m
+  const scenarioYaml = seedLine.test(option.yaml)
+    ? option.yaml.replace(seedLine, `seed: ${number}`)
+    : `${option.yaml}\nseed: ${number}\n`
   return {
     number,
     key,
     incident: option.label.replace('Incident: ', ''),
-    title: scenario.name,
-    scenarioYaml: stringify(scenario),
+    title: (parse(option.yaml) as { name: string }).name,
+    scenarioYaml,
   }
 }
 

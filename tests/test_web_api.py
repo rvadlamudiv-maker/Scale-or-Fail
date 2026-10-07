@@ -39,3 +39,11 @@ def test_incident_scenarios_include_the_real_story():
     assert len(out["incident"]["real_fixes"]) == 4
     practice = json.loads(run(read("designs/solid.yaml"), read("scenarios/url_shortener.yaml")))
     assert practice["incident"] is None
+
+
+def test_an_unquoted_incident_date_still_loads():
+    # YAML reads `date: 2018-10-21` (no quotes) as a date; the engine should accept it as text.
+    scenario = read("incidents/43_seconds/scenario.yaml").replace('date: "2018-10-21"', "date: 2018-10-21")
+    out = json.loads(run(read("incidents/43_seconds/solution.yaml"), scenario))
+    assert out["ok"] is True
+    assert out["incident"]["date"] == "2018-10-21"

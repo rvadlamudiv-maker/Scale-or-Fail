@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import datetime
 import random
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class Spike(BaseModel):
@@ -86,6 +87,12 @@ class Incident(BaseModel):
     postmortem_url: str
     summary: str = Field(description="What happened, in our own words.")
     real_fixes: list[str] = Field(default_factory=list, description="What the real engineers did.")
+
+    @field_validator("date", mode="before")
+    @classmethod
+    def _date_as_text(cls, value):
+        # YAML reads an unquoted 2018-10-21 as a date, not text. Accept both.
+        return value.isoformat() if isinstance(value, datetime.date) else value
 
 
 class Scenario(BaseModel):
