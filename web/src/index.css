@@ -511,3 +511,117 @@ body,
 .timeline ~ .results {
   bottom: 200px;
 }
+
+/* Daily Outage */
+.app__daily {
+  font: inherit;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--healthy);
+  background: transparent;
+  color: var(--healthy);
+  cursor: pointer;
+}
+
+.app__daily.is-active {
+  background: var(--healthy);
+  color: var(--ground);
+}
+
+.run-bar__daily {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.share {
+  position: absolute;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  width: min(460px, calc(100% - 24px));
+  box-sizing: border-box;
+  padding: 20px 24px;
+  background: var(--panel);
+  border: 1px solid var(--healthy);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.share__eyebrow {
+  margin: 0;
+  font-family: var(--font-data);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.share__title {
+  margin: 0;
+  font-size: 22px;
+}
+
+.share__grade {
+  margin: 0;
+  font-size: 15px;
+  color: var(--muted);
+}
+
+.share__grade b {
+  font-size: 20px;
+  color: var(--text);
+}
+
+.share__strip {
+  margin: 4px 0;
+  font-size: 26px;
+  letter-spacing: 2px;
+}
+
+.share__text {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--ground);
+  border: 1px solid var(--line);
+  font-family: var(--font-data);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  color: var(--muted);
+}
+
+.share__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.share__actions button {
+  font: inherit;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 9px 14px;
+  border-radius: 10px;
+  border: none;
+  background: var(--healthy);
+  color: var(--ground);
+  cursor: pointer;
+}
+
+.share__actions .share__close {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+
+.share__next {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}

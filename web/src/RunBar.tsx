@@ -9,15 +9,19 @@ type Props = {
   onRun: () => void
   running: boolean
   canRun: boolean
+  daily?: { label: string; played: boolean } // Daily Outage: fixed scenario, one attempt
 }
 
-export function RunBar({ scenario, onScenarioChange, onRun, running, canRun }: Props) {
+export function RunBar({ scenario, onScenarioChange, onRun, running, canRun, daily }: Props) {
   const [status, setStatus] = useState(engineStatus())
   useEffect(() => onEngineStatus(setStatus), [])
   const ready = status === 'ready'
 
   return (
     <div className="run-bar">
+      {daily ? (
+        <span className="run-bar__daily">{daily.label}</span>
+      ) : (
       <label className="run-bar__scenario">
         Scenario
         <select value={scenario} onChange={(e) => onScenarioChange(e.target.value)}>
@@ -28,8 +32,9 @@ export function RunBar({ scenario, onScenarioChange, onRun, running, canRun }: P
           ))}
         </select>
       </label>
-      <button type="button" onClick={onRun} disabled={!ready || running || !canRun}>
-        {running ? 'Running…' : 'Run ▶'}
+      )}
+      <button type="button" onClick={onRun} disabled={!ready || running || !canRun || Boolean(daily?.played)}>
+        {running ? 'Running…' : daily ? (daily.played ? 'Played today' : 'Submit ▶ (1 try)') : 'Run ▶'}
       </button>
       {!ready && <span className="run-bar__status">{status}</span>}
     </div>

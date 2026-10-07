@@ -29,12 +29,16 @@ import { Playback } from './Playback'
 import { useReplay } from './useReplay'
 import { TrafficEdge } from './TrafficEdge'
 import { Timeline } from './Timeline'
+import { loadDaily, recordFrom, saveDaily, todaysDaily, type Daily } from './daily'
+import { ShareCard } from './ShareCard'
 
 // Tell React Flow to draw nodes of type 'component' with our own component.
 const nodeTypes = { component: ComponentNode }
 const edgeTypes = { traffic: TrafficEdge }
 
-function Editor({ initial, initialScenario }: { initial: { nodes: FlowNode[]; edges: FlowEdge[] }; initialScenario: string }) {
+type EditorProps = { initial: { nodes: FlowNode[]; edges: FlowEdge[] }; initialScenario: string; daily: Daily | null }
+
+function Editor({ initial, initialScenario, daily }: EditorProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges)
   const [problem, setProblem] = useState<string | null>(null)
@@ -45,12 +49,23 @@ function Editor({ initial, initialScenario }: { initial: { nodes: FlowNode[]; ed
   const [runId, setRunId] = useState(0)
   const design = toDesign(nodes, edges)
 
+  // Daily Outage: today's result, if this browser already played.
+  const [record, setRecord] = useState(() => (daily ? loadDaily(daily.key) : null))
+  const [shareOpen, setShareOpen] = useState(true)
+
   const run = async () => {
-    const scenarioYaml = scenarioOptions.find((s) => s.label === scenario)!.yaml
+    const scenarioYaml = daily ? daily.scenarioYaml : scenarioOptions.find((s) => s.label === scenario)!.yaml
     setRunning(true)
-    setResult(await runSimulation(stringify(design), scenarioYaml))
+    const outcome = await runSimulation(stringify(design), scenarioYaml)
+    setResult(outcome)
     setRunId((id) => id + 1)
     setRunning(false)
+    if (daily && outcome.ok && !record) {
+      const saved = recordFrom(daily, outcome)
+      saveDaily(daily.key, saved)
+      setRecord(saved)
+      setShareOpen(true)
+    }
   }
 
   // Replay the run on the canvas, tick by tick.
@@ -137,6 +152,7 @@ function Editor({ initial, initialScenario }: { initial: { nodes: FlowNode[]; ed
           onRun={run}
           running={running}
           canRun={designProblems(design).length === 0}
+          daily={daily ? { label: `Daily Outage #${daily.number}: ${daily.title}`, played: Boolean(record) } : undefined}
         />
         {frame && !replay.done && (
           <Playback
@@ -154,6 +170,9 @@ function Editor({ initial, initialScenario }: { initial: { nodes: FlowNode[]; ed
         )}
         {result?.ok && frame && <Timeline run={result} index={replay.index} onSeek={replay.seek} />}
         {result && (!result.ok || replay.done) && <ResultsPanel result={result} onClose={() => setResult(null)} />}
+        {daily && record && shareOpen && (!result || replay.done) && (
+          <ShareCard record={record} nextNumber={daily.number + 1} onClose={() => setShareOpen(false)} />
+        )}
         {problem && (
           <div className="editor__problem" role="status">
             {problem}
@@ -167,15 +186,29 @@ function Editor({ initial, initialScenario }: { initial: { nodes: FlowNode[]; ed
 
 export default function App() {
   const [selected, setSelected] = useState(0)
+  const [daily, setDaily] = useState<Daily | null>(null)
+
+  const toggleDaily = () => {
+    if (daily) {
+      setDaily(null)
+      return
+    }
+    const today = todaysDaily()
+    setSelected(designOptions.findIndex((o) => o.label === `Incident: ${today.incident} (starter)`))
+    setDaily(today)
+  }
   const initial = toFlow(parseDesign(designOptions[selected].yaml))
 
   return (
     <div className="app">
       <header className="app__header">
         <span className="app__title">Scale or Fail</span>
+        <button type="button" className={`app__daily${daily ? ' is-active' : ''}`} onClick={toggleDaily}>
+          {daily ? 'Leave Daily Outage' : `Daily Outage #${todaysDaily().number}`}
+        </button>
         <label className="app__picker">
           Start from
-          <select value={selected} onChange={(e) => setSelected(Number(e.target.value))}>
+          <select value={selected} disabled={Boolean(daily)} onChange={(e) => setSelected(Number(e.target.value))}>
             {designOptions.map((option, i) => (
               <option key={option.label} value={i}>
                 {option.label}
@@ -185,8 +218,8 @@ export default function App() {
         </label>
       </header>
       {/* key={selected} gives each design a fresh editor */}
-      <ReactFlowProvider key={selected}>
-        <Editor initial={initial} initialScenario={designOptions[selected].scenario ?? DEFAULT_SCENARIO} />
+      <ReactFlowProvider key={`${selected}-${daily ? 'daily' : 'free'}`}>
+        <Editor initial={initial} initialScenario={designOptions[selected].scenario ?? DEFAULT_SCENARIO} daily={daily} />
       </ReactFlowProvider>
     </div>
   )
