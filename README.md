@@ -1,5 +1,8 @@
 # Scale or Fail
 
+**▶ Play it in your browser: https://scale-or-fail.pages.dev** (no install, nothing to sign up for)
+
+
 **Survive the outages that took down the internet.** A system design game with a deterministic Python simulation engine.
 
 Players design an architecture, then replay scenarios inspired by real, publicly documented outages. Failures emerge from the simulation instead of being scripted, and every run ends with a score: availability, latency, correctness, and cost.
