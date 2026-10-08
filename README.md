@@ -1,13 +1,50 @@
 # Scale or Fail
 
-**▶ Play it in your browser: https://scale-or-fail.pages.dev** (no install, nothing to sign up for)
+**Survive the outages that took down the internet.** A system design game where you build an architecture, then watch it face real outages, simulated by a deterministic Python engine that runs entirely in your browser.
 
+**▶ Play it: https://scale-or-fail.pages.dev** (no install, no sign-up; best on a laptop)
 
-**Survive the outages that took down the internet.** A system design game with a deterministic Python simulation engine.
+![The AWS retry storm: the traffic surge has ended, but the network is still on fire and 0% of requests succeed](docs/images/retry-storm.png)
+*The Retry Storm (inspired by AWS us-east-1, 2021): the surge ended at 20 s, but retries keep the network overloaded and 0% of requests succeed.*
 
-Players design an architecture, then replay scenarios inspired by real, publicly documented outages. Failures emerge from the simulation instead of being scripted, and every run ends with a score: availability, latency, correctness, and cost.
+## How it plays
 
-> Status: engine and all 5 scenarios complete - 4 inspired by real public postmortems, plus Black Friday. 257 tests.
+1. **Read the mission brief:** what's about to happen (a traffic spike, servers dying, a network partition), your targets, and a hint if you're stuck.
+2. **Build:** drag in load balancers, app servers, caches, databases and read replicas; wire them; tune instances, timeouts, retries, backoff, autoscaling, rollouts and failover.
+3. **Run:** the engine simulates every request flow and the canvas replays it. Components turn amber when busy and catch fire when overloaded; wires turn red where requests fail; live graphs track traffic, latency and success rate.
+4. **Get graded** S to F on availability, p99 latency, data correctness and cost, then compare your fix with **what the real engineers did**.
+5. **Daily Outage:** one incident a day, the same traffic for everyone, one try, and a spoiler-free share card.
+
+| Mission brief | The fix: an S on Black Friday | What the real engineers did |
+|---|---|---|
+| ![Mission brief](docs/images/mission-brief.png) | ![Black Friday S](docs/images/black-friday-s.png) | ![Debrief](docs/images/debrief.png) |
+
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph Browser
+        UI["React + React Flow editor<br/>replay, live graphs, Daily Outage"]
+        W["Web Worker<br/>Pyodide (Python on WebAssembly)"]
+        E["engine/ (Python)<br/>simulate + score"]
+        UI -- "design + scenario YAML" --> W
+        W --> E
+        E -- "score, metrics, per-tick timeline (JSON)" --> UI
+    end
+    GH["GitHub repo"] -- "git push" --> CF["Cloudflare Pages<br/>static hosting, auto-deploy"]
+    CF -- "HTML, JS, engine .py files" --> Browser
+```
+
+- **No backend.** The same Python engine that runs the CLI and the test suite runs in the player's browser through [Pyodide](https://pyodide.org), inside a Web Worker so the page never blocks. The site is static files on Cloudflare Pages.
+- **One format everywhere.** Designs and scenarios are YAML. The editor loads them, the engine reads them, and **Export design** writes them, so anything drawn in the browser runs in the CLI unchanged.
+- **Deterministic.** Same design + scenario + seed = identical result. That makes the tests reliable and the Daily Outage fair: the day number is the traffic seed.
+
+| Layer | Stack |
+|---|---|
+| Simulation engine | Python 3.12+, Pydantic, PyYAML, pytest (263 tests) |
+| Browser runtime | Pyodide (WebAssembly) in a Web Worker |
+| Game UI | React 19, TypeScript, React Flow, Vite |
+| Hosting | Cloudflare Pages, deployed on every push to `main` |
 
 ## Quickstart
 
@@ -16,6 +53,17 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 python -m engine.cli run scenarios/url_shortener.yaml designs/solid.yaml
 pytest -q
+
+# The browser game (needs Node 20+)
+cd web && npm install && npm run dev   # http://localhost:5173
+```
+
+```
+engine/      simulation, scoring, CLI, web_api.py (the browser entry point)
+scenarios/   practice scenarios        designs/   sample designs
+incidents/   real-outage scenarios: scenario + failing starter + winning solution
+web/         React + TypeScript game (editor, Pyodide worker, replay, Daily Outage)
+tests/       263 tests, including queueing-theory checks and every incident's starter/solution
 ```
 
 ## How the engine works
@@ -139,7 +187,12 @@ python -m engine.cli run incidents/retry_storm/scenario.yaml incidents/retry_sto
 - [x] Day 4 - autoscaling, cost, availability, scoring, chaos events
 - [x] Week 2 - metastable failures, tail amplification, gray failures, correctness, billing fix
 - [x] Real-outage scenarios: Retry Storm, Monday After the Holidays, Bad Regex, 43 Seconds, Black Friday
-- [ ] Daily Outage (date-seeded daily challenge + share card)
-- [ ] Browser game (React Flow + Pyodide)
+- [x] Browser game: React Flow editor, Pyodide engine, replay with live health, living wires and graphs
+- [x] Mission briefs, real-engineers debrief, tutorial
+- [x] Daily Outage (date-seeded daily challenge + share card), launched at https://scale-or-fail.pages.dev
+- [ ] Global Daily Outage leaderboard with server-side score verification
+- [ ] Break My System: design chaos to break other players' systems
+- [ ] More components (message queue, CDN) and incidents
+- [ ] AI-written postmortems of each run
 
 *Not affiliated with any company referenced in scenarios.*
