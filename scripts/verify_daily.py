@@ -15,6 +15,7 @@ import json
 import os
 import re
 import sys
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -57,11 +58,18 @@ def d1(sql: str, params: list | None = None) -> list[dict]:
     req = urllib.request.Request(
         url,
         data=json.dumps({"sql": sql, "params": params or []}).encode(),
-        headers={"Authorization": f"Bearer {os.environ['CF_API_TOKEN']}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {os.environ['CF_API_TOKEN'].strip()}",
+            "Content-Type": "application/json",
+            "User-Agent": "scale-or-fail-verify/1.0",
+        },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        body = json.load(resp)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            body = json.load(resp)
+    except urllib.error.HTTPError as exc:
+        raise SystemExit(f"Cloudflare said HTTP {exc.code}: {exc.read().decode()[:500]}") from None
     if not body.get("success"):
         raise RuntimeError(body.get("errors"))
     return body["result"][0].get("results", [])
