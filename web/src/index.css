@@ -900,3 +900,208 @@ body,
   border: 1px solid var(--line);
   color: var(--text);
 }
+
+/* Leaderboard: header button, submit form on the share card, and the top-20 panel */
+.app__board {
+  margin-left: auto;
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.app__board + .app__help {
+  margin-left: 0;
+}
+
+.share__board {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.share__board p {
+  margin: 0;
+}
+
+.share__form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.share__form label {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.share__form input {
+  flex: 1;
+  min-width: 140px;
+  font: inherit;
+  color: var(--text);
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+
+.share__form button {
+  font: inherit;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 10px;
+  background: var(--healthy);
+  color: var(--ground);
+  cursor: pointer;
+}
+
+.share__form button:disabled {
+  background: var(--line);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.share__link {
+  font: inherit;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--healthy);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.share__note {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.share__error {
+  margin-top: 6px !important;
+  color: var(--critical);
+  font-size: 13px;
+}
+
+.board {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(5, 8, 12, 0.72);
+}
+
+.board__card {
+  width: min(560px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 22px 24px;
+  background: var(--panel);
+  border: 1px solid var(--healthy);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.board__eyebrow {
+  margin: 0;
+  font-family: var(--font-data);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.board__title {
+  margin: 0;
+  font-size: 22px;
+}
+
+.board__note,
+.board__legend {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.board__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.board__list li {
+  display: grid;
+  grid-template-columns: 40px 1fr 28px 72px 92px 20px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.board__rank,
+.board__num {
+  font-family: var(--font-data);
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.board__num {
+  text-align: right;
+}
+
+.board__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board__grade {
+  font-weight: 700;
+  text-align: center;
+}
+
+.board__grade--S,
+.board__grade--A {
+  color: var(--healthy);
+}
+
+.board__grade--B,
+.board__grade--C {
+  color: var(--warning);
+}
+
+.board__grade--D,
+.board__grade--F {
+  color: var(--critical);
+}
+
+.board__verified {
+  text-align: center;
+  color: var(--healthy);
+}
+
+.board__close {
+  align-self: flex-end;
+  font: inherit;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}

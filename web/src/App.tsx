@@ -32,15 +32,21 @@ import { Timeline } from './Timeline'
 import { loadDaily, recordFrom, saveDaily, todaysDaily, type Daily } from './daily'
 import { ShareCard } from './ShareCard'
 import { Tour, tutorialSeen } from './Tour'
+import { LeaderboardPanel } from './LeaderboardPanel'
 import { Brief } from './Brief'
 
 // Tell React Flow to draw nodes of type 'component' with our own component.
 const nodeTypes = { component: ComponentNode }
 const edgeTypes = { traffic: TrafficEdge }
 
-type EditorProps = { initial: { nodes: FlowNode[]; edges: FlowEdge[] }; initialScenario: string; daily: Daily | null }
+type EditorProps = {
+  initial: { nodes: FlowNode[]; edges: FlowEdge[] }
+  initialScenario: string
+  daily: Daily | null
+  onShowLeaderboard: () => void
+}
 
-function Editor({ initial, initialScenario, daily }: EditorProps) {
+function Editor({ initial, initialScenario, daily, onShowLeaderboard }: EditorProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges)
   const [problem, setProblem] = useState<string | null>(null)
@@ -70,7 +76,7 @@ function Editor({ initial, initialScenario, daily }: EditorProps) {
     setRunId((id) => id + 1)
     setRunning(false)
     if (daily && outcome.ok && !record) {
-      const saved = recordFrom(daily, outcome)
+      const saved = recordFrom(daily, outcome, designYaml)
       saveDaily(daily.key, saved)
       setRecord(saved)
       setShareOpen(true)
@@ -192,7 +198,12 @@ function Editor({ initial, initialScenario, daily }: EditorProps) {
           />
         )}
         {daily && record && shareOpen && (!result || replay.done) && (
-          <ShareCard record={record} nextNumber={daily.number + 1} onClose={() => setShareOpen(false)} />
+          <ShareCard
+            record={record}
+            nextNumber={daily.number + 1}
+            onClose={() => setShareOpen(false)}
+            onShowLeaderboard={onShowLeaderboard}
+          />
         )}
         {problem && (
           <div className="editor__problem" role="status">
@@ -213,6 +224,7 @@ export default function App() {
   const [selected, setSelected] = useState(() => starterIndex(todaysDaily()))
   const [daily, setDaily] = useState<Daily | null>(() => todaysDaily())
   const [touring, setTouring] = useState(() => !tutorialSeen()) // first visit: show the walkthrough
+  const [boardOpen, setBoardOpen] = useState(false)
 
   const toggleDaily = () => {
     if (daily) {
@@ -246,15 +258,23 @@ export default function App() {
             ))}
           </select>
         </label>
+        <button type="button" className="app__board" onClick={() => setBoardOpen(true)}>
+          Leaderboard
+        </button>
         <button type="button" className="app__help" onClick={() => setTouring(true)}>
           How to play
         </button>
       </header>
       {/* key={selected} gives each design a fresh editor */}
       <ReactFlowProvider key={`${selected}-${daily ? 'daily' : 'free'}`}>
-        <Editor initial={initial} initialScenario={designOptions[selected].scenario ?? DEFAULT_SCENARIO} daily={daily} />
+        <Editor initial={initial} initialScenario={designOptions[selected].scenario ?? DEFAULT_SCENARIO} daily={daily}
+          onShowLeaderboard={() => setBoardOpen(true)}
+        />
       </ReactFlowProvider>
       {touring && <Tour onClose={() => setTouring(false)} />}
+      {boardOpen && (
+        <LeaderboardPanel daily={todaysDaily().number} title={todaysDaily().title} onClose={() => setBoardOpen(false)} />
+      )}
     </div>
   )
 }

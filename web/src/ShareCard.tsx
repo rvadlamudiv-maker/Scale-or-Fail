@@ -1,6 +1,7 @@
 // Today's Daily Outage result: spoiler-free (no design details), with copy and image download.
 import { useState } from 'react'
 import { shareText, type DailyRecord } from './daily'
+import { savedName, submitScore, submittedRank } from './leaderboard'
 
 const SQUARE_COLOR: Record<string, string> = { '🟦': '#4cc2ff', '🟨': '#f5b841', '🟥': '#ff5a36' }
 
@@ -40,8 +41,24 @@ function drawImage(r: DailyRecord): string {
   return canvas.toDataURL('image/png')
 }
 
-export function ShareCard({ record, nextNumber, onClose }: { record: DailyRecord; nextNumber: number; onClose: () => void }) {
+type Props = { record: DailyRecord; nextNumber: number; onClose: () => void; onShowLeaderboard: () => void }
+
+export function ShareCard({ record, nextNumber, onClose, onShowLeaderboard }: Props) {
   const [copied, setCopied] = useState(false)
+  const [name, setName] = useState(savedName)
+  const [rank, setRank] = useState(() => submittedRank(record.number))
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setSending(true)
+    setError(null)
+    const outcome = await submitScore(record, name.trim())
+    setSending(false)
+    if (outcome.ok) setRank(outcome.rank)
+    else setError(outcome.error)
+  }
   // Always share the official address, however the player reached the site.
   const url = 'https://scale-or-fail.pages.dev'
 
@@ -83,6 +100,33 @@ export function ShareCard({ record, nextNumber, onClose }: { record: DailyRecord
         <button type="button" className="share__close" onClick={onClose}>
           Close
         </button>
+      </div>
+      <div className="share__board">
+        {rank !== null ? (
+          <p>
+            You’re on the leaderboard{rank > 0 && <> at <b>#{rank}</b></>}.{' '}
+            <button type="button" className="share__link" onClick={onShowLeaderboard}>
+              See the top 20
+            </button>
+          </p>
+        ) : !record.design_yaml ? (
+          <p className="share__note">This result was saved before the leaderboard existed, so it can’t be submitted.</p>
+        ) : (
+          <form className="share__form" onSubmit={submit}>
+            <label htmlFor="board-name">Your name</label>
+            <input
+              id="board-name"
+              value={name}
+              maxLength={24}
+              placeholder="Shown on the leaderboard"
+              onChange={(e) => setName(e.target.value)}
+            />
+            <button type="submit" disabled={sending || name.trim().length < 2}>
+              {sending ? 'Submitting…' : 'Submit to leaderboard'}
+            </button>
+          </form>
+        )}
+        {error && <p className="share__error">{error}</p>}
       </div>
       <p className="share__next">One attempt per day. Come back tomorrow for Daily Outage #{nextNumber}.</p>
     </section>

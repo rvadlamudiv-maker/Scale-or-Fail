@@ -55,9 +55,10 @@ export type DailyRecord = {
   p99_ms: number
   cost_per_hour: number
   strip: string // 10 squares, one per tenth of the run: how users fared, without giving the design away
+  design_yaml?: string // the design behind the result, sent to the leaderboard so the score can be re-run
 }
 
-export function recordFrom(daily: Daily, result: Extract<RunResult, { ok: true }>): DailyRecord {
+export function recordFrom(daily: Daily, result: Extract<RunResult, { ok: true }>, designYaml = ''): DailyRecord {
   const buckets = 10
   const size = Math.ceil(result.ticks.length / buckets)
   let strip = ''
@@ -75,6 +76,7 @@ export function recordFrom(daily: Daily, result: Extract<RunResult, { ok: true }
     p99_ms: result.metrics.p99_ms,
     cost_per_hour: result.metrics.cost_per_hour,
     strip,
+    design_yaml: designYaml,
   }
 }
 
