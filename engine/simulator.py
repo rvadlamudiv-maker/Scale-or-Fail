@@ -64,6 +64,13 @@ automation for long enough, a cross-region policy promotes a new primary far awa
 Every write the old primary took during the partition was never replicated (it
 needs manual reconciliation), and every caller now pays a cross-region round trip
 on each database call - for good, because failing back isn't safe.
+
+Message queues make work asynchronous. The user's request is done once the queue accepts
+the message, so what happens downstream no longer adds latency or failures for the user.
+Consumers pull messages at the rate they can process them, and each partition feeds at
+most one consumer, so partitions cap how many consumers can help. Messages that fail
+downstream are redelivered (at-least-once). Whatever can't be processed yet waits in the
+backlog: message lag grows, and past max_backlog the oldest messages are lost.
 """
 
 from __future__ import annotations
@@ -82,6 +89,9 @@ MAX_UTILIZATION = 0.95
 
 # With a CPU guard, a runaway request can slow an instance down by at most this much.
 CPU_GUARD_MAX_SLOWDOWN = 1.5
+
+# Message lag is capped here (an hour) when nothing is draining the queue at all.
+MAX_MESSAGE_LAG_S = 3600
 
 # How far behind a healthy replica runs (network + apply time), in milliseconds.
 BASE_REPLICATION_LAG_MS = 10
@@ -107,6 +117,8 @@ class NodeTick:
     diverged_writes: float = 0.0  # databases: writes only the old primary has (need reconciliation)
     booting_instances: int = 0  # instances launched but still warming up
     cost_per_hour: float = 0.0  # (serving + booting instances) * price per instance
+    message_lag_s: float = 0.0  # queues only: how long a message accepted now waits to be processed
+    lost_messages: float = 0.0  # queues only: messages dropped from a full backlog, so far
 
 
 def reads_served_rps(tick: NodeTick) -> float:
@@ -193,6 +205,20 @@ class SimulationResult:
         return sum(n.diverged_writes for n in self.snapshots[-1].nodes.values())
 
     @property
+    def has_queue(self) -> bool:
+        return ComponentType.QUEUE in self.component_types.values()
+
+    @property
+    def peak_message_lag_s(self) -> float:
+        """The longest any message waited in a queue to be processed."""
+        return max((n.message_lag_s for s in self.snapshots for n in s.nodes.values()), default=0.0)
+
+    @property
+    def lost_messages(self) -> float:
+        """Messages queues accepted but lost before anyone processed them."""
+        return sum(n.lost_messages for n in self.snapshots[-1].nodes.values())
+
+    @property
     def avg_cost_per_hour(self) -> float:
         return sum(s.cost_per_hour for s in self.snapshots) / len(self.snapshots)
 
@@ -275,6 +301,12 @@ class Simulator:
         self._partition_writes: dict[str, float] = {n: 0.0 for n in self._order}
         self._failed_over: dict[str, bool] = {n: False for n in self._order}
         self._diverged: dict[str, float] = {n: 0.0 for n in self._order}
+        # Message queues: messages waiting, messages lost so far, messages handed to consumers
+        # this tick, and messages that failed downstream and come back next tick.
+        self._backlog: dict[str, float] = {n: 0.0 for n in self._order}
+        self._lost: dict[str, float] = {n: 0.0 for n in self._order}
+        self._dispatched: dict[str, float] = {}
+        self._redeliver: dict[str, float] = {}
         # Events aimed at a component this design doesn't have (e.g. flushing a cache in a
         # design without one) simply don't happen; the rest must make sense.
         self._events = [e for e in scenario.events if e.target in self._instances]
@@ -318,7 +350,14 @@ class Simulator:
             demand_rps = inbound[node_id]
             capacity_rps = self._capacity_rps(node_id)
 
-            if math.isinf(capacity_rps):
+            route_rps = None  # what goes downstream, when it differs from what was served
+            message_lag_s = 0.0
+            if component.type is ComponentType.QUEUE:
+                served, dropped, timed_out, queue, latency_ms, route_rps, message_lag_s = self._run_message_queue(
+                    node_id, component, demand_rps, capacity_rps
+                )
+                load = demand_rps / capacity_rps if capacity_rps > 0 else (10.0 if demand_rps > 0 else 0.0)
+            elif math.isinf(capacity_rps):
                 # The client has no limit: everything it sends goes out this tick.
                 self._queues[node_id] = 0.0
                 served, dropped, timed_out, queue, load = demand_rps * self.dt, 0.0, 0.0, 0.0, 0.0
@@ -370,6 +409,8 @@ class Simulator:
                 # You keep paying for the fleet you provisioned: instances that die are replaced
                 # (or still billed), so the bill never drops below the configured `instances`.
                 cost_per_hour=max(self._instances[node_id] + booting, component.instances) * component.hourly_price,
+                message_lag_s=message_lag_s,
+                lost_messages=self._lost[node_id],
             )
             if component.max_instances is not None:
                 self._autoscale(node_id, component, demand_rps)
@@ -380,15 +421,19 @@ class Simulator:
                 self._schedule_retries(late_calls, wasted_rps, wasted_rps)  # the caller saw these fail
             # Only real requests go downstream: not cache hits, not replicated writes.
             read_share = 1 - replication_rps / demand_rps if demand_rps else 1.0
-            self._route(node_id, component.type, served_rps * (1 - hit_ratio) * read_share, inbound, arrivals)
+            if route_rps is None:
+                route_rps = served_rps * (1 - hit_ratio) * read_share
+            self._route(node_id, component.type, route_rps, inbound, arrivals)
 
+        ok = self._success_by_node(nodes)
+        self._redeliver_failed_messages(ok)
         self._tick += 1
         return TickSnapshot(
             t=t,
             nodes=nodes,
             end_to_end_ms=self._end_to_end_ms(nodes),
             cost_per_hour=sum(n.cost_per_hour for n in nodes.values()),
-            success_ratio=self._success_ratio(nodes),
+            success_ratio=ok[self.graph.client_id],
             fresh_ratio=self._fresh_ratio(nodes),
             events=tuple(event_labels),
         )
@@ -402,7 +447,9 @@ class Simulator:
             reads = reads_served_rps(n)
             own = 1 - min(1.0, n.stale_rps / reads) if reads > 0 else 1.0
             edges = self.graph.downstream(node_id)
-            if self.graph.component(node_id).type is ComponentType.LOAD_BALANCER:
+            if self.graph.component(node_id).type is ComponentType.QUEUE:
+                downstream = 1.0  # the user doesn't wait for (or read from) the consumers
+            elif self.graph.component(node_id).type is ComponentType.LOAD_BALANCER:
                 weight_sum = sum(e.weight for e in edges)
                 downstream = sum(e.weight / weight_sum * fresh[e.target] for e in edges)
             else:
@@ -412,8 +459,12 @@ class Simulator:
         return fresh[self.graph.client_id]
 
     def _success_ratio(self, nodes: dict[str, NodeTick]) -> float:
+        return self._success_by_node(nodes)[self.graph.client_id]
+
+    def _success_by_node(self, nodes: dict[str, NodeTick]) -> dict[str, float]:
         """Bottom-up, like end-to-end latency: a node's success = its own success rate
-        times the success of the calls it makes (each call made calls_per_request times)."""
+        times the success of the calls it makes (each call made calls_per_request times).
+        A queue succeeds once it accepts the message: what happens downstream is async."""
         ok: dict[str, float] = {}
         for node_id in reversed(self._order):
             n = nodes[node_id]
@@ -421,7 +472,9 @@ class Simulator:
             failed = n.dropped_rps + n.timed_out_rps + n.pool_rejected_rps + n.wasted_rps
             own = 1 - min(1.0, failed / attempted) if attempted > 0 else 1.0
             edges = self.graph.downstream(node_id)
-            if self.graph.component(node_id).type is ComponentType.LOAD_BALANCER:
+            if self.graph.component(node_id).type is ComponentType.QUEUE:
+                downstream = 1.0
+            elif self.graph.component(node_id).type is ComponentType.LOAD_BALANCER:
                 weight_sum = sum(e.weight for e in edges)
                 downstream = sum(e.weight / weight_sum * self._call_success(e, ok) for e in edges)
             else:
@@ -429,7 +482,7 @@ class Simulator:
                 # A cache hit never goes downstream.
                 downstream = n.hit_ratio + (1 - n.hit_ratio) * downstream
             ok[node_id] = own * downstream
-        return ok[self.graph.client_id]
+        return ok
 
     @staticmethod
     def _call_success(edge: Edge, ok: dict[str, float]) -> float:
@@ -441,6 +494,54 @@ class Simulator:
         if edge.retry_budget is not None:
             extra_attempts = min(extra_attempts, edge.retry_budget / fail)
         return 1 - fail ** (1 + extra_attempts)
+
+    def _run_message_queue(self, node_id: str, component, demand_rps: float, capacity_rps: float):
+        """One tick of a message queue: accept, hand messages to consumers, keep the rest."""
+        dt = self.dt
+        # Producers: the brokers accept up to their capacity; past that, sending fails.
+        accepted = min(demand_rps, max(capacity_rps, 0.0)) * dt
+        dropped = demand_rps * dt - accepted
+        backlog = self._backlog[node_id] + accepted + self._redeliver.pop(node_id, 0.0)
+        # Consumers pull only what they can process right now.
+        drain_rps = self._consumer_drain_rps(node_id, component)
+        dispatched = min(backlog, drain_rps * dt)
+        backlog -= dispatched
+        # A full backlog loses its oldest messages: accepted, acknowledged, never processed.
+        lost = max(0.0, backlog - component.max_backlog)
+        backlog -= lost
+        self._lost[node_id] += lost
+        self._backlog[node_id] = backlog
+        self._dispatched[node_id] = dispatched
+        if drain_rps > 0:
+            lag_s = min(MAX_MESSAGE_LAG_S, backlog / drain_rps)
+        else:
+            lag_s = MAX_MESSAGE_LAG_S if backlog > 0 else 0.0
+        latency_ms = 0.0
+        if capacity_rps > 0:
+            latency_ms = self._latency_ms(self._service_ms(node_id), capacity_rps, accepted / dt, 0.0)
+        return accepted, dropped, 0.0, backlog, latency_ms, dispatched / dt, lag_s
+
+    def _consumer_drain_rps(self, node_id: str, component) -> float:
+        """How fast consumers can take messages. Every consumer group (edge) gets every message,
+        so the slowest group sets the pace. In a group, each partition feeds at most one instance."""
+        rates = []
+        for edge in self.graph.downstream(node_id):
+            target = self.graph.component(edge.target)
+            per_instance = target.total_capacity_rps / target.instances / self._slowdown[edge.target]
+            workers = min(self._instances[edge.target], component.partitions)
+            room = max(0.0, per_instance * workers * self.dt - self._queues[edge.target]) / self.dt
+            rates.append(room / edge.calls_per_request)
+        return min(rates, default=0.0)
+
+    def _redeliver_failed_messages(self, ok: dict[str, float]) -> None:
+        """At-least-once delivery: messages whose processing failed go back into the queue."""
+        for node_id, dispatched in self._dispatched.items():
+            processed = math.prod(
+                self._call_success(e, ok) ** e.calls_per_request for e in self.graph.downstream(node_id)
+            )
+            if processed < 1:
+                self._redeliver[node_id] = dispatched * (1 - processed)
+        self._dispatched.clear()
 
     def _capacity_rps(self, node_id: str) -> float:
         component = self.graph.component(node_id)
@@ -788,7 +889,9 @@ class Simulator:
         total: dict[str, float] = {}
         for node_id in reversed(self._order):
             edges = self.graph.downstream(node_id)
-            if self.graph.component(node_id).type is ComponentType.LOAD_BALANCER:
+            if self.graph.component(node_id).type is ComponentType.QUEUE:
+                downstream = 0.0  # the user is done once the message is accepted
+            elif self.graph.component(node_id).type is ComponentType.LOAD_BALANCER:
                 # A request goes to ONE target, so take the weighted average.
                 weight_sum = sum(e.weight for e in edges)
                 downstream = sum(e.weight / weight_sum * total[e.target] for e in edges)

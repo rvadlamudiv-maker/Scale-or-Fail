@@ -5,6 +5,8 @@ Every run starts at 10,000 points:
   - p99 latency above target costs 400 points per doubling (max 3,000)
   - stale data below the freshness target costs 600 points per percentage point (max 3,000)
   - writes that need manual reconciliation after a failover cost 1 point per 10 writes (max 3,000)
+  - with a message queue: message lag above target costs 1,000 points per doubling, and every
+    5 messages lost from a full backlog cost a point (together max 3,000)
   - spending under budget earns up to 1,000 points; over budget costs up to 3,000
 """
 
@@ -57,6 +59,11 @@ def integrity_points(diverged_writes: float) -> int:
     return -min(3000, round(diverged_writes / 10))
 
 
+def message_points(peak_lag_s: float, target_s: float, lost_messages: float) -> int:
+    lag = 0 if peak_lag_s <= target_s else round(1000 * math.log2(peak_lag_s / target_s))
+    return -min(3000, lag + round(lost_messages / 5))
+
+
 def cost_points(cost_per_hour: float, budget: float) -> int:
     if cost_per_hour <= budget:
         return round(1000 * (budget - cost_per_hour) / budget)
@@ -90,6 +97,17 @@ def score(result: SimulationResult) -> ScoreCard:
             f"{result.diverged_writes:,.0f} writes need manual reconciliation",
             integrity_points(result.diverged_writes),
         ),
+    ]
+    if result.has_queue:
+        lag, lost = result.peak_message_lag_s, result.lost_messages
+        lines.append(
+            ScoreLine(
+                "Message queue",
+                f"messages waited up to {lag:,.0f} s vs {goals.max_lag_s:,.0f} s target, {lost:,.0f} lost",
+                message_points(lag, goals.max_lag_s, lost),
+            )
+        )
+    lines += [
         ScoreLine(
             "Cost",
             f"${cost:,.0f}/hr vs ${goals.budget_per_hour:,.0f}/hr budget",

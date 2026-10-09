@@ -32,6 +32,8 @@ export type RunResult =
         cost_per_hour: number
         freshness: number
         diverged_writes: number
+        message_lag_s: number
+        lost_messages: number
       }
       events: { t: number; label: string }[]
       ticks: { t: number; ok: number; e2e_ms: number; nodes: Record<string, NodeState> }[]

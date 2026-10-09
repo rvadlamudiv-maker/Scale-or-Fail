@@ -17,6 +17,7 @@ class ComponentType(StrEnum):
     DATABASE = "database"
     CACHE = "cache"
     REPLICA = "replica"
+    QUEUE = "queue"
 
 
 # Requests per second one instance can serve before it saturates.
@@ -26,6 +27,7 @@ DEFAULT_CAPACITY_RPS: dict[ComponentType, float] = {
     ComponentType.DATABASE: 5_000,
     ComponentType.CACHE: 50_000,
     ComponentType.REPLICA: 5_000,
+    ComponentType.QUEUE: 20_000,  # messages/second one broker can accept
 }
 
 # Time one request spends being processed when the component is idle (milliseconds).
@@ -35,6 +37,7 @@ DEFAULT_SERVICE_MS: dict[ComponentType, float] = {
     ComponentType.DATABASE: 5,
     ComponentType.CACHE: 1,
     ComponentType.REPLICA: 5,
+    ComponentType.QUEUE: 2,
 }
 
 # What one instance costs to run, in dollars per hour (game prices).
@@ -45,6 +48,7 @@ DEFAULT_PRICE_PER_HOUR: dict[ComponentType, float] = {
     ComponentType.DATABASE: 380,
     ComponentType.CACHE: 120,
     ComponentType.REPLICA: 260,
+    ComponentType.QUEUE: 150,
 }
 
 # By default a component can queue up to 1 second of work before it drops requests.
@@ -74,6 +78,15 @@ class Component(BaseModel):
     cold_start: bool = Field(default=False, description="Start with an empty cache.")
     # Replica settings (only used when type is "replica").
     replica_of: str | None = Field(default=None, description="The database this replica copies.")
+    # Message queue settings (only used when type is "queue"). `instances` are brokers.
+    partitions: int = Field(
+        default=4, ge=1,
+        description="Each partition is read by at most one consumer, so partitions cap how many "
+        "consumer instances can work at once.",
+    )
+    max_backlog: int = Field(
+        default=1_000_000, ge=1, description="Messages the queue keeps before it starts losing them."
+    )
     # Autoscaling: on when max_instances is set. `instances` is the starting (and minimum) count.
     max_instances: int | None = Field(default=None, ge=1, description="Autoscaling ceiling. None = fixed size.")
     target_utilization: float = Field(default=0.7, gt=0, le=1, description="Scale out to keep load near this.")

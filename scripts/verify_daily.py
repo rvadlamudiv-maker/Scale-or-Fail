@@ -24,16 +24,22 @@ sys.path.insert(0, str(ROOT))
 
 from engine.web_api import run  # noqa: E402
 
-INCIDENTS = sorted((ROOT / "incidents").glob("*/scenario.yaml"))  # same order as the web app
+ROTATION = json.loads((ROOT / "incidents" / "rotation.json").read_text())["eras"]  # shared with the web app
 SEED_LINE = re.compile(r"^seed:.*$", re.MULTILINE)
+
+
+def incident_for_daily(number: int) -> str:
+    era = [e for e in ROTATION if e["from_daily"] <= number][-1]
+    return era["incidents"][(number - era["from_daily"]) % len(era["incidents"])]
 
 
 def scenario_for_daily(number: int) -> tuple[str, str]:
     """The incident name and scenario YAML everyone played on Daily Outage #number."""
-    path = INCIDENTS[(number - 1) % len(INCIDENTS)]
+    name = incident_for_daily(number)
+    path = ROOT / "incidents" / name / "scenario.yaml"
     text = path.read_text()
     text = SEED_LINE.sub(f"seed: {number}", text) if SEED_LINE.search(text) else f"{text}\nseed: {number}\n"
-    return path.parent.name, text
+    return name, text
 
 
 def check(row: dict) -> tuple[bool, str]:

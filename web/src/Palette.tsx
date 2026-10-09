@@ -6,6 +6,7 @@ export const PALETTE: { type: ComponentType; name: string; idBase: string; price
   { type: 'load_balancer', name: 'Load balancer', idBase: 'lb', price: 40 },
   { type: 'app_server', name: 'App server', idBase: 'app', price: 90 },
   { type: 'cache', name: 'Cache', idBase: 'cache', price: 120 },
+  { type: 'queue', name: 'Message queue', idBase: 'queue', price: 150 },
   { type: 'database', name: 'Database', idBase: 'db', price: 380 },
   { type: 'replica', name: 'Read replica', idBase: 'replica', price: 260 },
 ]

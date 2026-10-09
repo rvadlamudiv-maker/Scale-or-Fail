@@ -77,6 +77,9 @@ class Goals(BaseModel):
     staleness_tolerance_ms: float = Field(
         default=100, gt=0, description="Replica data older than this counts as stale."
     )
+    max_lag_s: float = Field(
+        default=60, gt=0, description="Queues: every message should be processed within this many seconds."
+    )
 
 
 class Incident(BaseModel):

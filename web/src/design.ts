@@ -2,7 +2,7 @@
 // Only the fields the editor needs are typed here; everything else is kept as-is.
 import { parse } from 'yaml'
 
-export type ComponentType = 'client' | 'load_balancer' | 'app_server' | 'database' | 'cache' | 'replica'
+export type ComponentType = 'client' | 'load_balancer' | 'app_server' | 'database' | 'cache' | 'replica' | 'queue'
 
 export interface Component {
   id: string

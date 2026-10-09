@@ -84,6 +84,10 @@ def _notes(result: SimulationResult, node_id: str, s) -> str:
     kind = result.component_types[node_id]
     if kind is ComponentType.CACHE:
         return f"hit ratio {s.avg_hit_ratio:.0%}"
+    if kind is ComponentType.QUEUE:
+        lost = result.snapshots[-1].nodes[node_id].lost_messages
+        lag = max(snap.nodes[node_id].message_lag_s for snap in result.snapshots)
+        return f"messages waited up to {_fmt(lag)} s" + (f", [bold red]{_fmt(lost)} lost[/]" if lost else "")
     if kind is ComponentType.REPLICA:
         lag = s.peak_replication_lag_ms
         return f"[{_style_for_lag(lag)}]lag up to {_fmt(lag)} ms, {s.stale_read_rate:.0%} stale reads[/]"

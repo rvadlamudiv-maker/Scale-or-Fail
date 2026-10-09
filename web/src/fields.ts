@@ -13,7 +13,7 @@ export type Field = {
   hint?: string
 }
 
-const ALL_BUT_CLIENT: ComponentType[] = ['load_balancer', 'app_server', 'database', 'cache', 'replica']
+const ALL_BUT_CLIENT: ComponentType[] = ['load_balancer', 'app_server', 'database', 'cache', 'replica', 'queue']
 
 export const COMPONENT_FIELDS: { field: Field; types: ComponentType[] }[] = [
   { types: ALL_BUT_CLIENT, field: { key: 'instances', label: 'Instances', kind: 'number', min: 1, step: 1 } },
@@ -23,7 +23,7 @@ export const COMPONENT_FIELDS: { field: Field; types: ComponentType[] }[] = [
   },
   { types: ['app_server'], field: { key: 'warmup_s', label: 'Boot time (s)', kind: 'number', optional: true, min: 0 } },
   {
-    types: ALL_BUT_CLIENT,
+    types: ['load_balancer', 'app_server', 'database', 'cache', 'replica'],
     field: { key: 'timeout_ms', label: 'Drop requests waiting over (ms)', kind: 'number', optional: true, min: 1, hint: 'Blank: wait forever' },
   },
   { types: ['app_server'], field: { key: 'balancing', label: 'Balancing', kind: 'choice', choices: ['round_robin', 'least_outstanding'] } },
@@ -31,6 +31,14 @@ export const COMPONENT_FIELDS: { field: Field; types: ComponentType[] }[] = [
   { types: ['app_server'], field: { key: 'cpu_guard', label: 'CPU guard', kind: 'toggle' } },
   { types: ['cache'], field: { key: 'ttl_s', label: 'Cache TTL (s)', kind: 'number', optional: true, min: 1 } },
   { types: ['replica'], field: { key: 'replica_of', label: 'Copies database', kind: 'choice', choices: [] } },
+  {
+    types: ['queue'],
+    field: { key: 'partitions', label: 'Partitions', kind: 'number', optional: true, min: 1, step: 1, hint: 'Max consumers reading at once (default 4)' },
+  },
+  {
+    types: ['queue'],
+    field: { key: 'max_backlog', label: 'Max backlog (messages)', kind: 'number', optional: true, min: 1, step: 1000, hint: 'Default 1,000,000; past it, messages are lost' },
+  },
   { types: ['database'], field: { key: 'failover', label: 'Failover', kind: 'choice', choices: ['within_region', 'cross_region'] } },
 ]
 

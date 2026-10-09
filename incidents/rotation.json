@@ -1,0 +1,13 @@
+{
+  "_comment": "Which incident each Daily Outage plays. Read by the web app and scripts/verify_daily.py. Only ever append a new era starting at a future daily number, so past dailies keep their incident.",
+  "eras": [
+    {
+      "from_daily": 1,
+      "incidents": ["43_seconds", "bad_regex", "black_friday", "monday_after_holidays", "retry_storm"]
+    },
+    {
+      "from_daily": 11,
+      "incidents": ["ticket_rush", "43_seconds", "bad_regex", "black_friday", "monday_after_holidays", "retry_storm"]
+    }
+  ]
+}

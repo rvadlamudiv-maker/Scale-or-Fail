@@ -1,0 +1,29 @@
+# The Ticket Rush - a design that survives.
+# 1. A waiting room: the load balancer puts every checkout in a message queue and answers right away
+#    ("you're in line"). The rush waits in the queue instead of crushing the database.
+# 2. Workers take orders from the queue at a pace the inventory database can handle (7,000/s of its 8,000).
+# 3. 8 partitions, so all 7 workers can read at once (with the default 4, three would sit idle).
+# The line peaks around 20 s and is gone well before the end - inside the 30 s target.
+components:
+  - id: client
+    type: client
+  - id: lb
+    type: load_balancer
+  - id: waiting_room
+    type: queue
+    partitions: 8
+  - id: checkout
+    type: app_server
+    instances: 7
+  - id: inventory
+    type: database
+    capacity_rps: 8000
+edges:
+  - source: client
+    target: lb
+  - source: lb
+    target: waiting_room
+  - source: waiting_room
+    target: checkout
+  - source: checkout
+    target: inventory

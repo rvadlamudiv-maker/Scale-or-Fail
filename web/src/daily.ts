@@ -1,6 +1,7 @@
 // The Daily Outage: one incident a day, the same for everyone, one attempt, a shareable result.
 import { parse } from 'yaml'
 import { scenarioOptions } from './design'
+import rotationJson from '../../incidents/rotation.json?raw'
 import type { RunResult } from './engine/client'
 
 const DAY_ONE = '2026-10-01' // Daily Outage #1
@@ -25,12 +26,20 @@ export type Daily = {
   scenarioYaml: string
 }
 
-const incidents = scenarioOptions.filter((s) => s.label.startsWith('Incident: '))
+// Which incident each daily plays (shared with the nightly verifier). New incidents start a new
+// era at a future daily number, so past dailies never change.
+type Era = { from_daily: number; incidents: string[] }
+const ERAS = (JSON.parse(rotationJson) as { eras: Era[] }).eras
+
+export function incidentFor(number: number): string {
+  const era = ERAS.filter((e) => e.from_daily <= number).at(-1)!
+  return era.incidents[(number - era.from_daily) % era.incidents.length]
+}
 
 export function todaysDaily(): Daily {
   const key = todayKey()
   const number = Math.max(1, dailyNumber(key))
-  const option = incidents[(number - 1) % incidents.length]
+  const option = scenarioOptions.find((s) => s.label === `Incident: ${incidentFor(number)}`)!
   // Same traffic for everyone today, different traffic tomorrow: the day number is the seed.
   // Only the seed line changes. (Re-writing the whole YAML can drop quotes, e.g. around dates.)
   const seedLine = /^seed:.*$/m

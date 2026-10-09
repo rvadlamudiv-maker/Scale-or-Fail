@@ -16,6 +16,7 @@ const KIND: Record<ComponentType, string> = {
   database: 'Database',
   cache: 'Cache',
   replica: 'Read replica',
+  queue: 'Message queue',
 }
 
 // Simple line icons, drawn on a 24x24 grid.
@@ -26,6 +27,7 @@ const ICON: Record<ComponentType, string> = {
   database: 'M5 6c0-1.7 3.1-3 7-3s7 1.3 7 3v12c0 1.7-3.1 3-7 3s-7-1.3-7-3z M5 6c0 1.7 3.1 3 7 3s7-1.3 7-3 M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3',
   cache: 'M13 3L5 14h6l-1 7 8-11h-6l1-7z',
   replica: 'M8 8h12v12H8z M16 8V4H4v12h4',
+  queue: 'M3 8h3v8H3z M8 8h3v8H8z M13 8h3v8h-3z M18 12h3 M19.5 10.5L21 12l-1.5 1.5',
 }
 
 const FLAME = 'M12 2c1.2 3.6 5 6 5 11a5 5 0 0 1-10 0c0-2.4 1.2-3.8 2.4-5 0 2.4 1.2 3.6 2.4 3.6 0-3.6-1.2-6 .2-9.6z'
@@ -55,6 +57,9 @@ export function ComponentNode({ data, selected }: NodeProps<ComponentNodeType>) 
               {fmt(live.served)} rps{c.type !== 'client' && ` · ${Math.round(live.load * 100)}%`}
             </span>
             {live.failed > 0 && <span className="component-node__failed">−{fmt(live.failed)} rps failing</span>}
+            {c.type === 'queue' && live.queue >= 1 && (
+              <span className="component-node__waiting">{fmt(live.queue)} waiting</span>
+            )}
           </>
         ) : (
           <span className="component-node__kind">{KIND[c.type]}</span>

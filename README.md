@@ -10,7 +10,7 @@
 ## How it plays
 
 1. **Read the mission brief:** what's about to happen (a traffic spike, servers dying, a network partition), your targets, and a hint if you're stuck.
-2. **Build:** drag in load balancers, app servers, caches, databases and read replicas; wire them; tune instances, timeouts, retries, backoff, autoscaling, rollouts and failover.
+2. **Build:** drag in load balancers, app servers, caches, databases, read replicas and message queues; wire them; tune instances, timeouts, retries, backoff, autoscaling, rollouts and failover.
 3. **Run:** the engine simulates every request flow and the canvas replays it. Components turn amber when busy and catch fire when overloaded; wires turn red where requests fail; live graphs track traffic, latency and success rate.
 4. **Get graded** S to F on availability, p99 latency, data correctness and cost, then compare your fix with **what the real engineers did**.
 5. **Daily Outage:** one incident a day, the same traffic for everyone, one try, and a spoiler-free share card.
@@ -63,7 +63,7 @@ engine/      simulation, scoring, CLI, web_api.py (the browser entry point)
 scenarios/   practice scenarios        designs/   sample designs
 incidents/   real-outage scenarios: scenario + failing starter + winning solution
 web/         React + TypeScript game (editor, Pyodide worker, replay, Daily Outage)
-tests/       263 tests, including queueing-theory checks and every incident's starter/solution
+tests/       275 tests, including queueing-theory checks and every incident's starter/solution
 ```
 
 ## How the engine works
@@ -92,6 +92,7 @@ tests/       263 tests, including queueing-theory checks and every incident's st
 | Connection pools | Little's Law: the highest rate where `rate × latency(rate) = pool_size`; excess calls are rejected |
 | Read replicas | Each replica serves its reads **and** replays every write; lag = 10 ms + backlog wait |
 | Stale reads | With lag L above the tolerance T, a share `1 − T/L` of a replica's reads are stale |
+| Message queues | Users only wait for the enqueue; consumers pull at their own pace, one consumer per partition; lag = backlog / drain rate; failed messages are redelivered, a full backlog loses them |
 | Autoscaling | Target tracking: `ceil(demand / (per-instance capacity × target_utilization))`, new instances serve after `warmup_s`, scale-in after `scale_in_after_s` of low load |
 | Balancing | `round_robin` gives every instance the same share; `least_outstanding` sends slow instances less (outlier detection) |
 | Cost | `max(serving + booting, configured instances) × price per hour`: booting instances are billed, dead ones don't lower the bill |
@@ -170,6 +171,7 @@ python -m engine.cli run incidents/retry_storm/scenario.yaml incidents/retry_sto
 | **Monday After the Holidays** | Slack, Jan 2021 | The network hub autoscales 45 s too late (F) | Pre-scale before the first day back (S); faster autoscaling alone still leaves a gap (B) |
 | **The Bad Regex** | Cloudflare, Jul 2019 | A global deploy leaves 8% of requests working for 25 s (F) | Canary rollouts + a CPU guard (S) |
 | **43 Seconds** | GitHub, Oct 2018 | Cross-region failover: half of requests fail for good, 317,867 diverged writes (F) | Failover only within a region (S); 10× the servers still can't fix the split brain (D) |
+| **The Ticket Rush** | Ticketmaster Eras Tour presale, Nov 2022 | 4× the all-time peak hits the inventory database synchronously (F) | A waiting room: queue the checkouts, drain them with 7 workers on 8 partitions (S). A bigger database also survives but costs more (B) |
 | **Black Friday** | No single incident | A design sized for a normal Tuesday (D) | Pre-scale to 15 web servers + cache the reads: the cheapest S. 30 servers scores lower (A) |
 
 ## Known limitations
@@ -190,9 +192,10 @@ python -m engine.cli run incidents/retry_storm/scenario.yaml incidents/retry_sto
 - [x] Browser game: React Flow editor, Pyodide engine, replay with live health, living wires and graphs
 - [x] Mission briefs, real-engineers debrief, tutorial
 - [x] Daily Outage (date-seeded daily challenge + share card), launched at https://scale-or-fail.pages.dev
-- [ ] Global Daily Outage leaderboard with server-side score verification
+- [x] Global Daily Outage leaderboard with nightly server-side score verification (Cloudflare D1 + GitHub Actions)
+- [x] Message queue component (partitions, backlog, lag, redelivery) + The Ticket Rush incident
 - [ ] Break My System: design chaos to break other players' systems
-- [ ] More components (message queue, CDN) and incidents
+- [ ] More components (CDN, rate limiter) and incidents
 - [ ] AI-written postmortems of each run
 
 *Not affiliated with any company referenced in scenarios.*

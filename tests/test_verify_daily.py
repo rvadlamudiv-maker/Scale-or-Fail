@@ -16,6 +16,11 @@ def test_daily_rotation_matches_the_web_app():
     assert scenario_for_daily(1)[0] == "43_seconds"
     assert scenario_for_daily(9)[0] == "monday_after_holidays"
     assert "seed: 9" in scenario_for_daily(9)[1]
+    # Adding an incident never changes past dailies: the new rotation starts at #11.
+    assert scenario_for_daily(10)[0] == "retry_storm"
+    assert scenario_for_daily(11)[0] == "ticket_rush"
+    assert scenario_for_daily(12)[0] == "43_seconds"
+    assert scenario_for_daily(17)[0] == "ticket_rush"
 
 
 def _honest_row(daily: int, design: str) -> dict:

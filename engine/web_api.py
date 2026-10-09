@@ -45,6 +45,8 @@ def run(design_yaml: str, scenario_yaml: str) -> str:
             "cost_per_hour": result.avg_cost_per_hour,
             "freshness": result.freshness,
             "diverged_writes": result.diverged_writes,
+            "message_lag_s": result.peak_message_lag_s,
+            "lost_messages": result.lost_messages,
         },
         "events": [{"t": s.t, "label": label} for s in result.snapshots for label in s.events],
         "ticks": [

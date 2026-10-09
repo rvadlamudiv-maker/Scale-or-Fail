@@ -1,0 +1,21 @@
+# The Ticket Rush - starting design.
+# Every checkout reserves seats in the inventory database while the fan waits on the page.
+# Fine on a normal day. During the presale, 12,000 checkouts a second hit it at once.
+components:
+  - id: client
+    type: client
+  - id: lb
+    type: load_balancer
+  - id: checkout
+    type: app_server
+    instances: 4
+  - id: inventory
+    type: database
+    capacity_rps: 8000
+edges:
+  - source: client
+    target: lb
+  - source: lb
+    target: checkout
+  - source: checkout
+    target: inventory

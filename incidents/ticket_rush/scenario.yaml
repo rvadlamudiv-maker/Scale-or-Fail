@@ -1,0 +1,33 @@
+name: The Ticket Rush
+description: The biggest presale ever opens at 10 seconds in. Four times your all-time peak hits the checkout at once - and the seat inventory database can only take so much.
+hint: "Does a fan really need their order finished while they wait on the page? What if the rush waited in line instead of hitting the database all at once - and how many workers can actually read from that line?"
+duration_s: 90
+tick_hz: 10
+seed: 42
+traffic:
+  base_rps: 3000
+  noise: 0.05
+  spikes:
+    # The presale opens: 4x the previous peak, for 30 seconds.
+    - at_s: 10
+      duration_s: 30
+      multiplier: 4
+goals:
+  availability: 0.999
+  p99_ms: 500
+  budget_per_hour: 1300
+  max_lag_s: 30
+incident:
+  title: Ticketmaster's Eras Tour presale
+  date: "2022-11-15"
+  postmortem_url: https://business.ticketmaster.com/press-release/taylor-swift-the-eras-tour-onsale-explained/
+  summary: >-
+    Over 3.5 million fans registered for the Verified Fan presale of Taylor Swift's Eras Tour. When it
+    opened, bots and fans without invite codes joined them, and the site took 3.5 billion system
+    requests - four times Ticketmaster's previous peak. To keep its systems up, Ticketmaster slowed
+    some sales and pushed others back, and fans waited for hours in the queue. More than two million
+    tickets still sold that day, a record for one artist, but the general public sale was cancelled.
+  real_fixes:
+    - Slowed down some sales and pushed others back, so the systems stayed up and the queue absorbed the rush (fans waited longer instead of everything crashing).
+    - Used Verified Fan invite codes to limit how many people could buy at once, putting the rest on a waitlist.
+    - Cancelled the general public sale, citing extraordinarily high demand on its ticketing systems.
